@@ -10,6 +10,7 @@ import '../../widgets/cover.dart';
 import '../../widgets/playlist_cover.dart';
 import '../artists/artist_page.dart';
 import '../../widgets/context_menu.dart';
+import '../../widgets/smooth_scroll.dart';
 import 'music_browser.dart';
 import '../../widgets/devices_sheet.dart';
 import '../../widgets/track_tile.dart';
@@ -214,7 +215,7 @@ class _HomePageState extends State<HomePage> {
         ]),
       );
     }
-    return ListView(padding: EdgeInsets.fromLTRB(pad, 8, pad, 24), children: [
+    return SmoothListView(padding: EdgeInsets.fromLTRB(pad, 8, pad, 24), children: [
       ...top,
       const SizedBox(height: 8),
       ListenableBuilder(
@@ -580,7 +581,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
       appBar: AppBar(title: const Text('Músicas curtidas')),
       body: l == null
           ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
+          : SmoothListView.builder(
               itemCount: l.length,
               itemBuilder: (_, i) => TrackTile(
                   track: l[i], onTap: () => p.playQueue(List.of(l), i)),

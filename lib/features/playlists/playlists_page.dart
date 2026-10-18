@@ -8,6 +8,7 @@ import '../../core/downloads/auto_download.dart';
 import '../../core/recent/recent_store.dart';
 import '../../widgets/add_to_playlist.dart';
 import '../../widgets/playlist_cover.dart';
+import '../../widgets/smooth_scroll.dart';
 import '../../widgets/playlist_details.dart';
 import '../../widgets/track_tile.dart';
 
@@ -73,7 +74,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
   late String _name = widget.info.name;
   _Sort _sort = _Sort.custom;
   bool _asc = true;
-  final _scrollCtl = ScrollController();
+  final _scrollCtl = SmoothScrollController();
   bool _bar = false;
   String _q = '';
   bool _searching = false;

@@ -21,57 +21,175 @@ class MenuEntry {
       {this.icon, this.leading, this.onTap, this.children, this.divider = false});
 }
 
+OverlayEntry? _openMenu;
+
+/// Menu próprio no overlay raiz: aparece exatamente na posição do clique,
+/// independente de Navigators aninhados ou painéis.
 Future<void> showMenuEntries(
     BuildContext context, Offset pos, List<MenuEntry> entries) async {
-  final size = MediaQuery.of(context).size;
-  final chosen = await showMenu<MenuEntry>(
-    context: context,
-    position: RelativeRect.fromLTRB(
-        pos.dx, pos.dy, size.width - pos.dx, size.height - pos.dy),
-    color: const Color(0xFF282828),
-    elevation: 12,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-    constraints: const BoxConstraints(minWidth: 240, maxWidth: 320),
-    items: [
-      for (final e in entries)
-        PopupMenuItem<MenuEntry>(
-          value: e,
-          enabled: e.onTap != null || e.children != null,
-          height: 40,
-          padding: EdgeInsets.zero,
-          child: Container(
-            decoration: BoxDecoration(
-                border: e.divider
-                    ? const Border(top: BorderSide(color: Color(0xFF3E3E3E)))
-                    : null),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(children: [
-              SizedBox(
-                  width: 24,
-                  child: e.leading ??
-                      (e.icon == null
-                          ? null
-                          : Icon(e.icon, size: 20, color: Colors.white70))),
-              const SizedBox(width: 12),
-              Expanded(
-                  child: Text(e.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w500))),
-              if (e.children != null)
-                const Icon(Icons.arrow_right, color: Colors.white70),
-            ]),
+  _openMenu?.remove();
+  _openMenu = null;
+  final overlay = Overlay.of(context, rootOverlay: true);
+  final box = overlay.context.findRenderObject() as RenderBox;
+  final local = box.globalToLocal(pos);
+  late OverlayEntry entry;
+  void close() {
+    if (identical(_openMenu, entry)) _openMenu = null;
+    entry.remove();
+  }
+
+  entry = OverlayEntry(
+      builder: (_) => _MenuLayer(
+          origin: local, screen: box.size, entries: entries, onClose: close));
+  _openMenu = entry;
+  overlay.insert(entry);
+}
+
+const _kItemH = 40.0;
+const _kMenuW = 270.0;
+
+double _heightOf(List<MenuEntry> l) =>
+    l.fold<double>(8, (a, e) => a + _kItemH + (e.divider ? 1 : 0));
+
+class _MenuLayer extends StatefulWidget {
+  final Offset origin;
+  final Size screen;
+  final List<MenuEntry> entries;
+  final VoidCallback onClose;
+  const _MenuLayer(
+      {required this.origin,
+      required this.screen,
+      required this.entries,
+      required this.onClose});
+  @override
+  State<_MenuLayer> createState() => _MenuLayerState();
+}
+
+class _MenuLayerState extends State<_MenuLayer> {
+  int? _sub;
+
+  Widget _panel(List<MenuEntry> list, Offset at, {required bool root}) {
+    final h = _heightOf(list);
+    final left = at.dx.clamp(8.0, (widget.screen.width - _kMenuW - 8).clamp(8.0, 99999.0));
+    final top = at.dy.clamp(8.0, (widget.screen.height - h - 8).clamp(8.0, 99999.0));
+    return Positioned(
+      left: left.toDouble(),
+      top: top.toDouble(),
+      width: _kMenuW,
+      child: Material(
+        color: const Color(0xFF282828),
+        elevation: 12,
+        borderRadius: BorderRadius.circular(6),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (var i = 0; i < list.length; i++) _item(list[i], i, root, left.toDouble(), top.toDouble(), list),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _item(MenuEntry e, int i, bool root, double left, double top,
+      List<MenuEntry> list) {
+    final enabled = e.onTap != null || e.children != null;
+    final color = enabled ? Colors.white : Colors.white38;
+    var y = top + 4;
+    for (var k = 0; k < i; k++) {
+      y += _kItemH + (list[k].divider ? 1 : 0);
+    }
+    return MouseRegion(
+      onEnter: (_) {
+        if (!root) return;
+        final next = e.children != null ? i : null;
+        if (next != _sub) setState(() => _sub = next);
+      },
+      child: InkWell(
+        onTap: !enabled
+            ? null
+            : () {
+                if (e.children != null) {
+                  if (root) setState(() => _sub = i);
+                  return;
+                }
+                widget.onClose();
+                e.onTap?.call();
+              },
+        child: Container(
+          height: _kItemH + (e.divider ? 1 : 0),
+          decoration: BoxDecoration(
+              border: e.divider
+                  ? const Border(top: BorderSide(color: Color(0xFF3E3E3E)))
+                  : null),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(children: [
+            SizedBox(
+                width: 24,
+                child: e.leading ??
+                    (e.icon == null
+                        ? null
+                        : Icon(e.icon, size: 20, color: color))),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Text(e.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: color))),
+            if (e.children != null)
+              Icon(Icons.arrow_right, color: color),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = widget.entries;
+    final h = _heightOf(list);
+    final rootLeft = widget.origin.dx
+        .clamp(8.0, (widget.screen.width - _kMenuW - 8).clamp(8.0, 99999.0))
+        .toDouble();
+    final rootTop = widget.origin.dy
+        .clamp(8.0, (widget.screen.height - h - 8).clamp(8.0, 99999.0))
+        .toDouble();
+    Widget? sub;
+    final si = _sub;
+    if (si != null && list[si].children != null) {
+      var y = rootTop + 4;
+      for (var k = 0; k < si; k++) {
+        y += _kItemH + (list[k].divider ? 1 : 0);
+      }
+      var x = rootLeft + _kMenuW - 4;
+      if (x + _kMenuW > widget.screen.width - 8) x = rootLeft - _kMenuW + 4;
+      sub = _panel(list[si].children!, Offset(x, y), root: false);
+    }
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (_, ev) {
+        if (ev is KeyDownEvent && ev.logicalKey == LogicalKeyboardKey.escape) {
+          widget.onClose();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Stack(children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (_) => widget.onClose(),
+            onSecondaryTapDown: (_) => widget.onClose(),
+            child: const SizedBox.expand(),
           ),
         ),
-    ],
-  );
-  if (chosen == null) return;
-  if (chosen.children != null) {
-    if (!context.mounted) return;
-    await showMenuEntries(context, pos + const Offset(250, 0), chosen.children!);
-  } else {
-    chosen.onTap?.call();
+        _panel(list, Offset(rootLeft, rootTop), root: true),
+        if (sub != null) sub,
+      ]),
+    );
   }
 }
 

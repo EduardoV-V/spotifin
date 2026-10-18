@@ -198,12 +198,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 );
               },
             ),
-            ListenableBuilder(
-              listenable: AppScope.of(context).player,
-              builder: (context, _) => AppScope.of(context).player.advanced
-                  ? const _LastFmField()
-                  : const SizedBox.shrink(),
-            ),
+            const _MetaKeys(),
+            const SizedBox(height: 8),
+            const Text('Spotifin build ui9',
+                style: TextStyle(fontSize: 11, color: Colors.white38)),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.download_outlined),
@@ -241,37 +239,96 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-class _LastFmField extends StatefulWidget {
-  const _LastFmField();
+class _MetaKeys extends StatefulWidget {
+  const _MetaKeys();
   @override
-  State<_LastFmField> createState() => _LastFmFieldState();
+  State<_MetaKeys> createState() => _MetaKeysState();
 }
 
-class _LastFmFieldState extends State<_LastFmField> {
-  final _c = TextEditingController();
+class _MetaKeysState extends State<_MetaKeys> {
+  final _fields = <String, TextEditingController>{
+    ArtistInfoService.audioDbPref: TextEditingController(),
+    LastFmService.prefKey: TextEditingController(),
+    LastFmService.lbPref: TextEditingController(),
+  };
 
   @override
   void initState() {
     super.initState();
-    LastFmService.instance.key().then((k) => _c.text = k);
+    SharedPreferences.getInstance().then((sp) {
+      _fields.forEach((k, c) => c.text = sp.getString(k) ?? '');
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
-    _c.dispose();
+    for (final c in _fields.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+  Widget _f(String key, String label, String help) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
         child: TextField(
-          controller: _c,
-          decoration: const InputDecoration(
-              labelText: 'Chave da API do Last.fm',
-              helperText: 'Opcional: melhora as reproduções globais em "Populares" (sem chave usa ListenBrainz)'),
-          onChanged: (v) => SharedPreferences.getInstance()
-              .then((sp) => sp.setString(LastFmService.prefKey, v.trim())),
+          controller: _fields[key],
+          decoration: InputDecoration(
+              labelText: label,
+              helperText: help,
+              helperMaxLines: 2,
+              suffixIcon: _fields[key]!.text.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _fields[key]!.clear();
+                        SharedPreferences.getInstance()
+                            .then((sp) => sp.remove(key));
+                        setState(() {});
+                      })),
+          onChanged: (v) {
+            SharedPreferences.getInstance().then((sp) => v.trim().isEmpty
+                ? sp.remove(key)
+                : sp.setString(key, v.trim()));
+            setState(() {});
+          },
         ),
       );
+
+  @override
+  Widget build(BuildContext context) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SizedBox(height: 16),
+        Text('Metadados (opcional)',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 4),
+        const Text(
+            'Fotos e reproduções globais vêm de serviços externos. Sem chaves, fica só o que o Deezer/ListenBrainz entregam.',
+            style: TextStyle(fontSize: 12, color: Colors.white54)),
+        const SizedBox(height: 12),
+        _f(ArtistInfoService.audioDbPref, 'Chave do TheAudioDB',
+            'Vazio usa a chave pública de teste (2).'),
+        _f(LastFmService.prefKey, 'Chave da API do Last.fm',
+            'Reproduções globais por música (recomendado).'),
+        _f(LastFmService.lbPref, 'Token do ListenBrainz', 'Opcional.'),
+        OutlinedButton(
+          onPressed: () async {
+            showDialog(
+                context: context,
+                builder: (_) => const AlertDialog(
+                    content: SizedBox(
+                        height: 48,
+                        child: Center(child: CircularProgressIndicator()))));
+            final r = await diagnoseMetadata();
+            if (!context.mounted) return;
+            Navigator.of(context).pop();
+            showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                    title: const Text('Teste de conexão'), content: Text(r)));
+          },
+          child: const Text('Testar conexão'),
+        ),
+      ]);
 }

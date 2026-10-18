@@ -1,5 +1,6 @@
 import '../widgets/context_menu.dart';
 import '../widgets/playlist_cover.dart';
+import '../widgets/smooth_scroll.dart';
 import 'package:flutter/material.dart';
 
 import '../core/audio/player_service.dart';
@@ -373,7 +374,7 @@ class _LeftPanel extends StatelessWidget {
       await svc.create(name, const []);
     }
 
-    Widget list(List<_Entry> items) => ListView(
+    Widget list(List<_Entry> items) => SmoothListView(
           padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 8),
           children: [for (final e in items) _row(e)],
         );
@@ -631,7 +632,7 @@ class _QueueView extends StatelessWidget {
             next.add(i);
           }
         }
-        return ListView(children: [
+        return SmoothListView(children: [
           _section('Tocando agora'),
           _TrackRow(track: cur, current: true, onTap: () {}),
           if (next.isNotEmpty)
@@ -677,7 +678,7 @@ class _RecentViewState extends State<_RecentView> {
                   : const CircularProgressIndicator());
         }
         final l = s.data!;
-        return ListView.builder(
+        return SmoothListView.builder(
           itemCount: l.length,
           itemBuilder: (_, i) =>
               _TrackRow(track: l[i], onTap: () => p.playQueue(l, i)),
@@ -742,7 +743,7 @@ class _DevicesViewState extends State<_DevicesView> {
           );
         }
 
-        return ListView(children: [
+        return SmoothListView(children: [
           Container(
             margin: const EdgeInsets.fromLTRB(8, 8, 8, 8),
             decoration: BoxDecoration(

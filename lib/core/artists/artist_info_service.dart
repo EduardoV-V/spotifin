@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../i18n/strings.dart';
+
 /// Dados de artista vindos de APIs públicas (não do Jellyfin):
 /// Deezer (foto, fãs) e TheAudioDB (banner/fanart, biografia por idioma).
 class ArtistInfo {
@@ -54,7 +56,13 @@ class ArtistInfoService {
   static final instance = ArtistInfoService._();
 
   /// Chave de teste pública do TheAudioDB; troque por uma própria se precisar.
-  static const audioDbKey = '2';
+  static const audioDbDefault = '2'; // chave pública de teste
+  static const audioDbPref = 'meta_audiodb';
+
+  Future<String> audioDbKey() async {
+    final v = (await SharedPreferences.getInstance()).getString(audioDbPref);
+    return (v == null || v.trim().isEmpty) ? audioDbDefault : v.trim();
+  }
   static const _ttl = Duration(days: 14);
   static const _bioFields = {
     'en': 'EN',
@@ -97,40 +105,90 @@ class ArtistInfoService {
 
   Future<ArtistInfo?> _load(String name, String k) async {
     final sp = await SharedPreferences.getInstance();
-    final raw = sp.getString('ai_$k');
+    final raw = sp.getString('ai2_$k');
     if (raw != null) {
       try {
         final j = jsonDecode(raw) as Map<String, dynamic>;
         final at = DateTime.fromMillisecondsSinceEpoch(j['at'] as int);
         if (DateTime.now().difference(at) < _ttl) {
-          return _mem[k] =
-              ArtistInfo.fromJson(j['info'] as Map<String, dynamic>);
+          final c = ArtistInfo.fromJson(j['info'] as Map<String, dynamic>);
+          if (c.picture != null || c.hero != null) return _mem[k] = c;
         }
       } catch (_) {}
     }
     final r = await Future.wait([_deezer(name), _audioDb(name)]);
     final dz = r[0];
     final adb = r[1];
-    if (dz == null && adb == null) return null; // falha: tenta de novo depois
+    var picture = dz?['picture'] as String?;
+    var hero = adb?['hero'] as String?;
+    final bio = Map<String, String>.from(
+        (adb?['bio'] as Map<String, String>?) ?? const {});
+    if (picture == null || hero == null || !bio.containsKey(S.lang)) {
+      final wk = await _wiki(name, S.lang);
+      if (wk != null) {
+        picture ??= wk['image'] as String?;
+        hero ??= wk['image'] as String?;
+        final ex = wk['bio'] as String?;
+        if (ex != null && !bio.containsKey(S.lang)) bio[S.lang] = ex;
+      }
+    }
+    if (dz == null && adb == null && picture == null) {
+      return null; // falha: tenta de novo depois
+    }
     final info = ArtistInfo(
       name: name,
-      picture: dz?['picture'] as String?,
+      picture: picture,
       fans: dz?['fans'] as int?,
-      hero: adb?['hero'] as String?,
+      hero: hero,
       genre: adb?['genre'] as String?,
       country: adb?['country'] as String?,
-      bio: (adb?['bio'] as Map<String, String>?) ?? const {},
+      bio: bio,
     );
     try {
       if (info.picture == null && info.hero == null) return _mem[k] = info;
       await sp.setString(
-          'ai_$k',
+          'ai2_$k',
           jsonEncode({
             'at': DateTime.now().millisecondsSinceEpoch,
             'info': info.toJson(),
           }));
     } catch (_) {}
     return _mem[k] = info;
+  }
+
+  /// Wikipedia (sem chave, no idioma do app): foto e resumo.
+  Future<Map<String, dynamic>?> _wiki(String name, String lang) async {
+    final host = '${lang.isEmpty ? 'en' : lang}.wikipedia.org';
+    try {
+      final q = await _http
+          .get(Uri.https(host, '/w/api.php', {
+            'action': 'query',
+            'list': 'search',
+            'srsearch': '$name musician OR band OR singer',
+            'srlimit': '1',
+            'format': 'json',
+          }), headers: const {'User-Agent': 'Spotifin/0.1 (personal use)'})
+          .timeout(const Duration(seconds: 8));
+      if (q.statusCode != 200) return null;
+      final hits = (jsonDecode(utf8.decode(q.bodyBytes))['query']?['search']
+              as List?) ??
+          const [];
+      if (hits.isEmpty) return null;
+      final title = (hits.first as Map)['title'] as String;
+      if (_fold(title).contains(_fold(name)) == false) return null;
+      final r = await _http
+          .get(Uri.https(host,
+              '/api/rest_v1/page/summary/${Uri.encodeComponent(title.replaceAll(' ', '_'))}'),
+              headers: const {'User-Agent': 'Spotifin/0.1 (personal use)'})
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) return null;
+      final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+      final img = ((j['originalimage'] ?? j['thumbnail']) as Map?)?['source']
+          as String?;
+      return {'image': img, 'bio': j['extract'] as String?};
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>?> _deezer(String name) async {
@@ -157,9 +215,10 @@ class ArtistInfoService {
 
   Future<Map<String, dynamic>?> _audioDb(String name) async {
     try {
+      final key = await audioDbKey();
       final res = await _http
           .get(Uri.https('www.theaudiodb.com',
-              '/api/v1/json/$audioDbKey/search.php', {'s': name}))
+              '/api/v1/json/$key/search.php', {'s': name}))
           .timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return null;
       final list = (jsonDecode(res.body)['artists'] as List?) ?? const [];
@@ -196,6 +255,7 @@ class LastFmService {
   static final instance = LastFmService._();
 
   static const prefKey = 'lastfm_key';
+  static const lbPref = 'meta_lb_token';
   final _http = http.Client();
   final _mem = <String, Map<String, int>>{};
 
@@ -211,6 +271,11 @@ class LastFmService {
       (await SharedPreferences.getInstance()).getString(prefKey) ?? '';
 
   static const _ua = {'User-Agent': 'Spotifin/0.1 (personal use)'};
+
+  Future<Map<String, String>> _lbHeaders() async {
+    final t = (await SharedPreferences.getInstance()).getString(lbPref) ?? '';
+    return {..._ua, if (t.trim().isNotEmpty) 'Authorization': 'Token ${t.trim()}'};
+  }
 
   /// título normalizado -> reproduções globais.
   /// Last.fm (se houver chave); senão ListenBrainz (sem chave).
@@ -285,7 +350,7 @@ class LastFmService {
               Uri.https('api.listenbrainz.org',
                   '/1/popularity/top-recordings-for-artist',
                   {'artist_mbid': mbid}),
-              headers: _ua)
+              headers: await _lbHeaders())
           .timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return null;
       final list = jsonDecode(res.body);
@@ -300,4 +365,32 @@ class LastFmService {
       return null;
     }
   }
+}
+
+/// Testa cada fonte de metadados e devolve um relatório curto.
+Future<String> diagnoseMetadata() async {
+  final c = http.Client();
+  const ua = {'User-Agent': 'Spotifin/0.1 (personal use)'};
+  Future<String> t(String label, Uri u, [Map<String, String>? h]) async {
+    try {
+      final r = await c.get(u, headers: h).timeout(const Duration(seconds: 10));
+      return '$label: HTTP ${r.statusCode}';
+    } catch (e) {
+      return '$label: ERRO $e';
+    }
+  }
+
+  final ak = await ArtistInfoService.instance.audioDbKey();
+  final lk = await LastFmService.instance.key();
+  final out = <String>[
+    await t('Deezer', Uri.https('api.deezer.com', '/search/artist', {'q': 'Coldplay', 'limit': '1'})),
+    await t('Wikipedia', Uri.https('en.wikipedia.org', '/api/rest_v1/page/summary/Coldplay'), ua),
+    await t('TheAudioDB', Uri.https('www.theaudiodb.com', '/api/v1/json/$ak/search.php', {'s': 'Coldplay'})),
+    await t('MusicBrainz', Uri.https('musicbrainz.org', '/ws/2/artist/', {'query': 'artist:"Coldplay"', 'fmt': 'json', 'limit': '1'}), ua),
+    await t('ListenBrainz', Uri.https('api.listenbrainz.org', '/1/popularity/top-recordings-for-artist', {'artist_mbid': 'cc197bad-dc9c-440d-a5b5-d52ba2e14234'}), ua),
+    if (lk.isNotEmpty)
+      await t('Last.fm', Uri.https('ws.audioscrobbler.com', '/2.0/', {'method': 'artist.gettoptracks', 'artist': 'Coldplay', 'api_key': lk, 'format': 'json', 'limit': '1'})),
+  ];
+  c.close();
+  return out.join('\n');
 }

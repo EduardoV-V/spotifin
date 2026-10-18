@@ -383,15 +383,46 @@ class JellyfinClient {
     return items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  final _artistImg = <String, String?>{};
+
+  /// Foto do artista no próprio Jellyfin (se o servidor tiver); cache.
+  Future<String?> artistImage(String name) async {
+    if (_artistImg.containsKey(name)) return _artistImg[name];
+    try {
+      final s = _requireSession();
+      final res = await _http.get(
+          Uri.parse('${s.serverUrl}/Artists/${Uri.encodeComponent(name)}')
+              .replace(queryParameters: {'userId': s.userId}),
+          headers: authHeaders);
+      if (res.statusCode == 200) {
+        final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        final tags = (j['ImageTags'] as Map?) ?? const {};
+        if (tags.containsKey('Primary')) {
+          return _artistImg[name] =
+              imageUri(j['Id'] as String, maxWidth: 600).toString();
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    return _artistImg[name] = null;
+  }
+
   final _previews = <String, List<Track>>{};
 
   /// 4 primeiras faixas (mosaico da capa padrão); cache em memória.
   Future<List<Track>> playlistPreview(String id) async {
     final c = _previews[id];
     if (c != null) return c;
-    final items = await _items('/Playlists/$id/Items', {'limit': '4'});
-    return _previews[id] =
-        items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
+    final items = await _items('/Playlists/$id/Items', {'limit': '80'});
+    final seen = <String>{};
+    final out = <Track>[];
+    for (final e in items) {
+      final t = Track.fromJson(e as Map<String, dynamic>);
+      if (seen.add(t.albumId ?? t.id)) out.add(t);
+      if (out.length == 4) break;
+    }
+    return _previews[id] = out;
   }
 
   void clearPreview(String id) => _previews.remove(id);

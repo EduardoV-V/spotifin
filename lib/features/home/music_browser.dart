@@ -4,6 +4,7 @@ import '../../app/app_scope.dart';
 import '../../app/theme.dart';
 import '../../core/jellyfin/models.dart';
 import '../../widgets/cover.dart';
+import '../../widgets/smooth_scroll.dart';
 import '../../widgets/track_tile.dart';
 
 /// Todas as músicas do servidor, em lista ou ícones; carrega por páginas.
@@ -20,7 +21,7 @@ class _MusicBrowserState extends State<MusicBrowser> {
   bool _grid = false;
   bool _init = false;
   late final AppScope _scope;
-  final _scroll = ScrollController();
+  final _scroll = SmoothScrollController();
 
   @override
   void didChangeDependencies() {

@@ -10,6 +10,7 @@ import '../../core/i18n/strings.dart';
 import '../../core/jellyfin/models.dart';
 import '../../widgets/context_menu.dart';
 import '../../widgets/cover.dart';
+import '../../widgets/smooth_scroll.dart';
 
 String fmtPlays(int n) {
   final s = n.toString();
@@ -30,7 +31,7 @@ class ArtistPage extends StatefulWidget {
 
 class _ArtistPageState extends State<ArtistPage> {
   late final String _name = ArtistInfoService.primary(widget.name);
-  final _scroll = ScrollController();
+  final _scroll = SmoothScrollController();
   ArtistInfo? _info;
   List<Track>? _tracks;
   bool _more = false;
@@ -69,6 +70,9 @@ class _ArtistPageState extends State<ArtistPage> {
       final f = sp.getStringList(_fKey) ?? const [];
       if (mounted) setState(() => _following = f.contains(_name.toLowerCase()));
     });
+    _scope.client.artistImage(_name).then((u) {
+      if (mounted && u != null) setState(() => _jf = u);
+    });
     LastFmService.instance.topTracks(_name).then((m) {
       if (mounted && m != null) setState(() => _global = m);
     });
@@ -86,6 +90,7 @@ class _ArtistPageState extends State<ArtistPage> {
   }
 
   Map<String, int> _global = const {};
+  String? _jf;
   int _globalOf(Track t) => _global[LastFmService.norm(t.title)] ?? 0;
 
   Future<void> _toggleFollow() async {
@@ -102,7 +107,7 @@ class _ArtistPageState extends State<ArtistPage> {
     l.sort((a, b) {
       final c = _globalOf(b) != _globalOf(a)
           ? _globalOf(b).compareTo(_globalOf(a))
-          : b.plays.compareTo(a.plays);
+          : b.plays.compareTo(a.plays); // desempate só entre sem dado global
       return c != 0 ? c : a.title.compareTo(b.title);
     });
     return l;
@@ -153,6 +158,13 @@ class _ArtistPageState extends State<ArtistPage> {
               return Stack(fit: StackFit.expand, children: [
                 if (hero != null)
                   Image.network(hero,
+                      fit: BoxFit.cover,
+                      alignment: const Alignment(0, -0.5),
+                      errorBuilder: (_, __, ___) =>
+                          Container(color: const Color(0xFF3A3A3A)))
+                else if (_jf != null)
+                  Image.network(_jf!,
+                      headers: _scope.client.authHeaders,
                       fit: BoxFit.cover,
                       alignment: const Alignment(0, -0.5),
                       errorBuilder: (_, __, ___) =>
@@ -476,9 +488,7 @@ class _PopularRowState extends State<_PopularRow> {
                       child: Align(
                           alignment: Alignment.centerRight,
                           child: Text(
-                              widget.global > 0
-                                  ? fmtPlays(widget.global)
-                                  : (t.plays > 0 ? fmtPlays(t.plays) : ''),
+                              widget.global > 0 ? fmtPlays(widget.global) : '',
                               style: dim))),
                 SizedBox(
                   width: 40,

@@ -5,6 +5,7 @@ import '../../app/theme.dart';
 import '../../core/jellyfin/models.dart';
 import '../../core/recent/recent_store.dart';
 import '../../widgets/cover.dart';
+import '../../widgets/smooth_scroll.dart';
 import '../../widgets/track_tile.dart';
 
 class AlbumPage extends StatefulWidget {
@@ -20,6 +21,7 @@ class AlbumPage extends StatefulWidget {
 
 class _AlbumPageState extends State<AlbumPage> {
   List<Track>? _l;
+  final _sc = SmoothScrollController();
 
   @override
   void didChangeDependencies() {
@@ -44,7 +46,7 @@ class _AlbumPageState extends State<AlbumPage> {
     return Scaffold(
       body: l == null
           ? const Center(child: CircularProgressIndicator())
-          : CustomScrollView(slivers: [
+          : CustomScrollView(controller: _sc, slivers: [
               SliverAppBar(pinned: true, backgroundColor: const Color(0xFF181818)),
               SliverToBoxAdapter(
                 child: Padding(

@@ -293,6 +293,7 @@ class ConnectService extends ChangeNotifier with WidgetsBindingObserver {
     _player.setMirror(null);
     await _player.loadRemote(first, 0, Duration(milliseconds: posMs), shuffle: shuffle, repeat: repeat);
     await _player.play();
+    Future.delayed(const Duration(seconds: 6), () => unawaited(_player.ensurePlaying()));
     unawaited(() async {
       try {
         final before = await _client.tracksByIds(ids.sublist(0, idx));
@@ -326,6 +327,7 @@ class ConnectService extends ChangeNotifier with WidgetsBindingObserver {
       await _player.loadRemote([m.track], 0, Duration(milliseconds: pos),
           shuffle: false, repeat: QueueRepeat.off);
       await _player.play();
+      Future.delayed(const Duration(seconds: 6), () => unawaited(_player.ensurePlaying()));
       unawaited(_fillFromState(m));
       return;
     }

@@ -8,6 +8,7 @@ import '../../core/artists/artist_info_service.dart';
 import '../../core/i18n/strings.dart';
 import '../../core/jellyfin/models.dart';
 import '../../widgets/cover.dart';
+import '../../widgets/smooth_scroll.dart';
 import '../../widgets/track_tile.dart';
 
 class ArtistAvatar extends StatelessWidget {
@@ -29,9 +30,21 @@ class ArtistAvatar extends StatelessWidget {
                 color: AppColors.elevated,
                 child: Icon(Icons.person,
                     size: size * 0.5, color: AppColors.textSecondary));
-            if (url == null) return fallback;
-            return Image.network(url,
-                fit: BoxFit.cover, errorBuilder: (_, __, ___) => fallback);
+            if (url != null) {
+              return Image.network(url,
+                  fit: BoxFit.cover, errorBuilder: (_, __, ___) => fallback);
+            }
+            if (s.connectionState != ConnectionState.done) return fallback;
+            final client = AppScope.of(context).client;
+            return FutureBuilder<String?>(
+              future: client.artistImage(ArtistInfoService.primary(name)),
+              builder: (_, j) => j.data == null
+                  ? fallback
+                  : Image.network(j.data!,
+                      headers: client.authHeaders,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => fallback),
+            );
           },
         ),
       ),
@@ -567,7 +580,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
                   ),
                 const SizedBox(height: 24),
               ];
-              return ListView(children: [
+              return SmoothListView(children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   child: SingleChildScrollView(
