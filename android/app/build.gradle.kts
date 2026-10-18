@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.evmartins.spotifin"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

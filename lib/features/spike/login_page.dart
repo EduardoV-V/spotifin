@@ -1,41 +1,45 @@
 import 'package:flutter/material.dart';
 
+import '../../app/account_actions.dart';
+import '../../app/app_scope.dart';
 import '../../core/jellyfin/jellyfin_client.dart';
 import '../../core/storage/session_store.dart';
-import 'tracks_page.dart';
 
 class LoginPage extends StatefulWidget {
-  final JellyfinClient client;
-  const LoginPage({super.key, required this.client});
+  final String? initialUrl;
+  final String? initialUser;
+  final bool canCancel;
+  const LoginPage(
+      {super.key, this.initialUrl, this.initialUser, this.canCancel = false});
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _url = TextEditingController();
-  final _user = TextEditingController();
+  late final _url = TextEditingController(text: widget.initialUrl);
+  late final _user = TextEditingController(text: widget.initialUser);
   final _pass = TextEditingController();
   bool _busy = false;
   String? _error;
 
   Future<void> _login() async {
+    final scope = AppScope.of(context);
+    final nav = Navigator.of(context);
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final s = await widget.client.login(
+      final s = await scope.client.login(
         serverUrl: _url.text,
         username: _user.text,
         password: _pass.text,
         deviceId: await SessionStore.deviceId(),
       );
       await SessionStore.save(s);
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
-          builder: (_) => TracksPage(client: widget.client)));
+      await applyAccount(scope, nav, s);
     } on JellyfinException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -44,6 +48,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: widget.canCancel ? AppBar() : null,
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -51,7 +56,7 @@ class _LoginPageState extends State<LoginPage> {
             shrinkWrap: true,
             padding: const EdgeInsets.all(24),
             children: [
-              Text('Conectar ao Jellyfin',
+              Text(widget.canCancel ? 'Adicionar conta' : 'Conectar ao Jellyfin',
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 16),
               TextField(
@@ -59,10 +64,12 @@ class _LoginPageState extends State<LoginPage> {
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
                       labelText: 'URL do servidor',
-                      hintText: 'http://192.168.0.10:8096')),
+                      hintText: 'http://jellyfin.home:8096')),
+              const SizedBox(height: 12),
               TextField(
                   controller: _user,
                   decoration: const InputDecoration(labelText: 'Usuário')),
+              const SizedBox(height: 12),
               TextField(
                   controller: _pass,
                   obscureText: true,
