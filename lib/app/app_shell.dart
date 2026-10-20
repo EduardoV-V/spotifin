@@ -3,11 +3,13 @@ import 'package:flutter/services.dart';
 
 import '../core/downloads/auto_download.dart';
 import 'app_scope.dart';
+import 'nav.dart';
 import 'desktop_shell.dart';
 import '../features/home/home_page.dart';
 import '../features/library/library_page.dart';
 import '../features/search/search_page.dart';
 import '../features/settings/settings_page.dart';
+import '../features/create/create_sheet.dart';
 import '../widgets/mini_player.dart';
 import 'theme.dart';
 
@@ -29,16 +31,102 @@ class _AppShellState extends State<AppShell> {
     AutoDownload.instance.start(AppScope.of(context));
   }
 
-  static const _pages = [HomePage(), SearchPage(), LibraryPage()];
   static const _items = [
     (Icons.home_outlined, Icons.home, 'Início'),
     (Icons.search, Icons.search, 'Buscar'),
     (Icons.library_music_outlined, Icons.library_music, 'Sua Biblioteca'),
   ];
 
+  final _nav = shellNav;
+  final _tab = ValueNotifier<int>(0);
+
+  void _select(int i) {
+    _nav.currentState?.popUntil((r) => r.isFirst);
+    _tab.value = i;
+    setState(() => _index = i);
+  }
+
+  Widget _mobile(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    const reserve = 150.0; // mini player + barra inferior
+    final theme = Theme.of(context);
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        final n = _nav.currentState;
+        if (n != null && n.canPop()) {
+          n.pop();
+        } else if (_index != 0) {
+          _select(0);
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: Stack(children: [
+          Positioned.fill(
+            child: MediaQuery(
+              data: mq.copyWith(
+                  padding: mq.padding
+                      .copyWith(bottom: mq.padding.bottom + reserve)),
+              child: Theme(
+                data: theme.copyWith(
+                    snackBarTheme: SnackBarThemeData(
+                        behavior: SnackBarBehavior.floating,
+                        insetPadding: EdgeInsets.fromLTRB(
+                            12, 0, 12, reserve + mq.padding.bottom))),
+                child: Navigator(
+                  key: _nav,
+                  onGenerateRoute: (_) => MaterialPageRoute(
+                    builder: (_) => ValueListenableBuilder<int>(
+                      valueListenable: _tab,
+                      builder: (_, i, __) => IndexedStack(
+                          index: i,
+                          children: const [
+                            HomePage(),
+                            SearchPage(),
+                            LibraryPage()
+                          ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0x00000000),
+                      Color(0xB3000000),
+                      Color(0xF2000000)
+                    ],
+                    stops: [0, 0.35, 0.7]),
+              ),
+              padding: const EdgeInsets.only(top: 16),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const MiniPlayer(),
+                _NavBar(
+                    index: _index,
+                    onSelect: _select,
+                    onCreate: () => showCreateSheet(context)),
+              ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final body = IndexedStack(index: _index, children: _pages);
     final player = AppScope.of(context).player;
     return CallbackShortcuts(
       bindings: {
@@ -52,28 +140,56 @@ class _AppShellState extends State<AppShell> {
       child: Focus(
         autofocus: true,
         child: LayoutBuilder(builder: (context, c) {
-      if (c.maxWidth >= 800) {
-        return const DesktopShell();
-      }
-      return Scaffold(
-        body: body,
-        bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
-          const MiniPlayer(),
-          NavigationBar(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            destinations: [
-              for (final it in _items)
-                NavigationDestination(
-                    icon: Icon(it.$1), selectedIcon: Icon(it.$2), label: it.$3),
-            ],
-          ),
-        ]),
-      );
+          if (c.maxWidth >= 800) return const DesktopShell();
+          return _mobile(context);
         }),
       ),
     );
   }
+}
+
+class _NavBar extends StatelessWidget {
+  final int index;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onCreate;
+  const _NavBar(
+      {required this.index, required this.onSelect, required this.onCreate});
+
+  Widget _it(IconData i, IconData sel, String l, bool on, VoidCallback t) =>
+      Expanded(
+        child: InkWell(
+          onTap: t,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 6),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              AnimatedScale(
+                  scale: on ? 1.08 : 1,
+                  duration: const Duration(milliseconds: 150),
+                  child: Icon(on ? sel : i,
+                      size: 26,
+                      color: on ? Colors.white : AppColors.textSecondary)),
+              const SizedBox(height: 2),
+              Text(l,
+                  maxLines: 1,
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: on ? FontWeight.w700 : FontWeight.w500,
+                      color: on ? Colors.white : AppColors.textSecondary)),
+            ]),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        top: false,
+        child: Row(children: [
+          for (var i = 0; i < _AppShellState._items.length; i++)
+            _it(_AppShellState._items[i].$1, _AppShellState._items[i].$2,
+                _AppShellState._items[i].$3, index == i, () => onSelect(i)),
+          _it(Icons.add, Icons.add, 'Criar', false, onCreate),
+        ]),
+      );
 }
 
 class _Sidebar extends StatelessWidget {

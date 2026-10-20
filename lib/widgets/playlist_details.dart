@@ -10,20 +10,41 @@ import 'playlist_cover.dart';
 class PlaylistEdit {
   final String name;
   final bool photoChanged;
-  const PlaylistEdit(this.name, this.photoChanged);
+  final bool deleted;
+  const PlaylistEdit(this.name, this.photoChanged, {this.deleted = false});
 }
 
 /// Diálogo "Nome e detalhes": nome, descrição e foto da playlist.
 Future<PlaylistEdit?> showPlaylistDetails(
-        BuildContext context, String id, String name, int version) =>
-    showDialog<PlaylistEdit>(
-        context: context,
-        builder: (_) => _Details(id: id, name: name, version: version));
+    BuildContext context, String id, String name, int version) {
+  if (MediaQuery.sizeOf(context).width < 700) {
+    return showModalBottomSheet<PlaylistEdit>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF282828),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: _Details(id: id, name: name, version: version, sheet: true),
+      ),
+    );
+  }
+  return showDialog<PlaylistEdit>(
+      context: context,
+      builder: (_) => _Details(id: id, name: name, version: version));
+}
 
 class _Details extends StatefulWidget {
   final String id, name;
   final int version;
-  const _Details({required this.id, required this.name, required this.version});
+  final bool sheet;
+  const _Details(
+      {required this.id,
+      required this.name,
+      required this.version,
+      this.sheet = false});
   @override
   State<_Details> createState() => _DetailsState();
 }
@@ -96,8 +117,131 @@ class _DetailsState extends State<_Details> {
     }
   }
 
+  Future<void> _delete() async {
+    final scope = AppScope.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Apagar "${widget.name}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Apagar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final err = await scope.playlists.delete(widget.id);
+    if (!mounted) return;
+    if (err != null) {
+      setState(() => _err = err);
+    } else {
+      Navigator.pop(context, PlaylistEdit(widget.name, false, deleted: true));
+    }
+  }
+
+  Widget _sheet() {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            TextButton(
+                onPressed: _busy ? null : () => Navigator.pop(context),
+                child: const Text('Cancelar',
+                    style: TextStyle(color: Colors.white, fontSize: 13))),
+            const Expanded(
+                child: Center(
+                    child: Text('Nome e detalhes',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700)))),
+            TextButton(
+                onPressed: _busy ? null : _save,
+                child: _busy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Salvar',
+                        style: TextStyle(
+                            color: AppColors.accent,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13))),
+          ]),
+          const SizedBox(height: 16),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            InkWell(
+              onTap: _pick,
+              child: Stack(children: [
+                _img != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: Image.memory(_img!,
+                            width: 120, height: 120, fit: BoxFit.cover))
+                    : PlaylistCover(
+                        id: widget.id,
+                        size: 120,
+                        version: widget.version,
+                        radius: 2),
+                Positioned(
+                  right: 6,
+                  bottom: 6,
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: const BoxDecoration(
+                        color: Color(0xCC555555), shape: BoxShape.circle),
+                    child: const Icon(Icons.edit, size: 16),
+                  ),
+                ),
+              ]),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(children: [
+                TextField(
+                    controller: _name,
+                    decoration: const InputDecoration(
+                        isDense: true,
+                        fillColor: Color(0xFF3E3E3E),
+                        contentPadding: EdgeInsets.all(12))),
+                const SizedBox(height: 8),
+                TextField(
+                    controller: _desc,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                        isDense: true,
+                        fillColor: Color(0xFF3E3E3E),
+                        hintText: 'Adicione uma descrição',
+                        contentPadding: EdgeInsets.all(12))),
+              ]),
+            ),
+          ]),
+          if (_err != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(_err!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+            ),
+          const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Apagar playlist',
+                style: TextStyle(fontWeight: FontWeight.w500)),
+            onTap: _busy ? null : _delete,
+          ),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.sheet) return _sheet();
     return AlertDialog(
       backgroundColor: const Color(0xFF282828),
       title: const Text('Editar detalhes'),

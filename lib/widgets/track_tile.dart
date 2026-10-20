@@ -1,3 +1,4 @@
+import 'download_badge.dart';
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
@@ -155,23 +156,60 @@ class TrackTile extends StatelessWidget {
             onMenu: (p) => showTrackMenu(context, p, track, onRemove: onRemove),
           );
         }
-        return MenuTarget(
-          onMenu: (p) => showTrackMenu(context, p, track, onRemove: onRemove),
-          child: ListTile(
-          leading: Cover(track: track, size: 48),
-          title: Text(track.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontWeight: FontWeight.w500,
-                  color: isCurrent ? AppColors.accent : Colors.white)),
-          subtitle: Text(track.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.textSecondary)),
+        return InkWell(
           onTap: onTap,
-          trailing: trailingW,
-        ));
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 4, 6),
+            child: Row(children: [
+              Cover(track: track, size: 48),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color:
+                                  isCurrent ? AppColors.accent : Colors.white)),
+                      const SizedBox(height: 2),
+                      Row(children: [
+                        if (scope.favorites.isFavorite(track.id))
+                          const Padding(
+                              padding: EdgeInsets.only(right: 6),
+                              child: Icon(Icons.check_circle,
+                                  size: 14, color: AppColors.accent)),
+                        if (state == DownloadState.completed)
+                          const Padding(
+                              padding: EdgeInsets.only(right: 6),
+                              child: Icon(Icons.arrow_circle_down,
+                                  size: 14, color: AppColors.accent)),
+                        Flexible(
+                          child: Text(track.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textSecondary)),
+                        ),
+                      ]),
+                    ]),
+              ),
+              Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.more_vert,
+                      color: AppColors.textSecondary),
+                  onPressed: () => showTrackMenu(
+                      ctx, Offset.zero, track,
+                      onRemove: onRemove),
+                ),
+              ),
+            ]),
+          ),
+        );
       },
     );
   }

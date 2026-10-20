@@ -87,3 +87,6 @@ class _FadeSlide extends PageTransitionsBuilder {
     );
   }
 }
+
+/// Espaço no fim de listas (no celular inclui o mini player + barra inferior).
+double bottomReserve(BuildContext c) => MediaQuery.paddingOf(c).bottom + 24;

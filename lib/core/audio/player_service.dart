@@ -78,6 +78,8 @@ class PlayerService extends ChangeNotifier {
 
   List<Track> _queue = [];
   List<int> _order = [];
+  // Índices de _queue adicionados manualmente ("fila do usuário").
+  Set<int> _manual = {};
   int _pos = -1;
   bool _shuffle = false;
   QueueRepeat _repeat = QueueRepeat.off;
@@ -192,6 +194,7 @@ class PlayerService extends ChangeNotifier {
     _loadId++;
     await _player.stop();
     _queue = List.of(tracks);
+    _manual = {};
     _order = List<int>.generate(tracks.length, (i) => i);
     _pos = index.clamp(0, tracks.length - 1);
     _shuffle = shuffle;
@@ -206,6 +209,7 @@ class PlayerService extends ChangeNotifier {
   int get orderPos => _pos;
   Track trackAtOrder(int p) => _queue[_order[p]];
   int keyAtOrder(int p) => _order[p];
+  bool isManualAt(int p) => p >= 0 && p < _order.length && _manual.contains(_order[p]);
 
   String get verdict {
     if (_playingLocal) return 'Reproduzindo arquivo baixado (offline).';
@@ -219,6 +223,12 @@ class PlayerService extends ChangeNotifier {
   }
 
   void _rebuildOrder(int currentQueueIndex) {
+    final pending = <int>[
+      if (_pos >= 0)
+        for (var i = _pos + 1; i < _order.length; i++)
+          if (_manual.contains(_order[i]) && _order[i] != currentQueueIndex)
+            _order[i]
+    ];
     final idx = List<int>.generate(_queue.length, (i) => i);
     if (_shuffle) {
       if (currentQueueIndex >= 0) idx.remove(currentQueueIndex);
@@ -227,6 +237,11 @@ class PlayerService extends ChangeNotifier {
       _pos = currentQueueIndex >= 0 ? 0 : -1;
     } else {
       _pos = currentQueueIndex;
+    }
+    if (pending.isNotEmpty && _pos >= 0) {
+      idx.removeWhere(pending.contains);
+      final at = idx.indexOf(currentQueueIndex);
+      idx.insertAll(at + 1, pending);
     }
     _order = idx;
   }
@@ -245,6 +260,8 @@ class PlayerService extends ChangeNotifier {
     queueSource = source;
     _mirror = null;
     _queue = List.of(tracks);
+    _manual = {};
+    _pos = -1;
     _rebuildOrder(startIndex);
     await _playCurrent();
     _persistQueue();
@@ -503,7 +520,12 @@ class PlayerService extends ChangeNotifier {
   Future<void> addToQueue(Track t) async {
     if (_queue.isEmpty) return playQueue([t], 0);
     _queue.add(t);
-    _order.add(_queue.length - 1);
+    _manual.add(_queue.length - 1);
+    var at = _pos + 1;
+    while (at < _order.length && _manual.contains(_order[at])) {
+      at++;
+    }
+    _order.insert(at, _queue.length - 1);
     _persistQueue();
     notifyListeners();
   }
@@ -511,9 +533,14 @@ class PlayerService extends ChangeNotifier {
   Future<void> addAllToQueue(List<Track> ts) async {
     if (ts.isEmpty) return;
     if (_queue.isEmpty) return playQueue(ts, 0);
+    var at = _pos + 1;
+    while (at < _order.length && _manual.contains(_order[at])) {
+      at++;
+    }
     for (final t in ts) {
       _queue.add(t);
-      _order.add(_queue.length - 1);
+      _manual.add(_queue.length - 1);
+      _order.insert(at++, _queue.length - 1);
     }
     _persistQueue(); // uma gravação só, em vez de uma por faixa
     notifyListeners();
@@ -522,6 +549,7 @@ class PlayerService extends ChangeNotifier {
   void fillAround(Track current, List<Track> before, List<Track> after){
     if (_queue.length !=1 || _queue[0].id != current.id) return;
     _queue = [...before, _queue[0], ...after];
+    _manual = {};
     _order = List<int>.generate(_queue.length, (i) => i);
     _pos = before.length;
     _persistQueue();
@@ -531,6 +559,7 @@ class PlayerService extends ChangeNotifier {
   Future<void> playNext(Track t) async {
     if (_queue.isEmpty) return playQueue([t], 0);
     _queue.add(t);
+    _manual.add(_queue.length - 1);
     _order.insert(_pos + 1, _queue.length - 1);
     _persistQueue();
     notifyListeners();
@@ -541,6 +570,10 @@ class PlayerService extends ChangeNotifier {
     final qIdx = _order[p];
     final wasCurrent = p == _pos;
     _queue.removeAt(qIdx);
+    _manual = {
+      for (final m in _manual)
+        if (m != qIdx) m > qIdx ? m - 1 : m
+    };
     _order.removeAt(p);
     for (var i = 0; i < _order.length; i++) {
       if (_order[i] > qIdx) _order[i]--;
@@ -577,6 +610,7 @@ class PlayerService extends ChangeNotifier {
     final cur = _cur;
     if (cur == null) return;
     _queue = [cur];
+    _manual = {};
     _order = [0];
     _pos = 0;
     _persistQueue();
@@ -587,6 +621,7 @@ class PlayerService extends ChangeNotifier {
     _mirror = null;
     await _player.stop();
     _queue = [];
+    _manual = {};
     _order = [];
     _pos = -1;
     _loaded = false;
@@ -615,6 +650,7 @@ class PlayerService extends ChangeNotifier {
         throw StateError('estado inválido');
       }
       _queue = queue;
+      _manual = {...((j['manual'] as List?) ?? const []).cast<int>()};
       _order = order;
       _pos = pos;
       _shuffle = j['shuffle'] as bool;
@@ -637,6 +673,7 @@ class PlayerService extends ChangeNotifier {
         jsonEncode({
           'queue': _queue.map((t) => t.toJson()).toList(),
           'order': _order,
+          'manual': _manual.toList(),
           'pos': _pos,
           'shuffle': _shuffle,
           'repeat': _repeat.index,

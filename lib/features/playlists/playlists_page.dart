@@ -1,3 +1,4 @@
+import '../../widgets/download_badge.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
@@ -6,7 +7,11 @@ import '../../core/jellyfin/jellyfin_client.dart';
 import '../../core/jellyfin/models.dart';
 import '../../core/downloads/auto_download.dart';
 import '../../core/recent/recent_store.dart';
+import 'package:flutter/services.dart';
+
+import '../../core/cover_color.dart';
 import '../../widgets/add_to_playlist.dart';
+import '../../widgets/context_menu.dart';
 import '../../widgets/playlist_cover.dart';
 import '../../widgets/smooth_scroll.dart';
 import '../../widgets/playlist_details.dart';
@@ -74,12 +79,22 @@ class _PlaylistPageState extends State<PlaylistPage> {
   late String _name = widget.info.name;
   _Sort _sort = _Sort.custom;
   bool _asc = true;
-  final _scrollCtl = SmoothScrollController();
+  double _top = 0;
+  bool _mobileInit = false;
+  double get _searchH => 56 + _top;
+  late final _scrollCtl = SmoothScrollController(
+      initialScrollOffset: _mobileInit ? _searchH : 0);
   bool _bar = false;
+  bool _hid = false;
   String _q = '';
   bool _searching = false;
   int _coverV = 0;
   String _desc = '';
+  bool _hasImg = false;
+
+  String get _tintId => _hasImg || _tracks.isEmpty
+      ? widget.info.id
+      : (_tracks.first.albumId ?? _tracks.first.id);
   final _qCtl = TextEditingController();
 
   List<Track> get _view {
@@ -148,12 +163,17 @@ class _PlaylistPageState extends State<PlaylistPage> {
     if (_init) return;
     _init = true;
     _scope = AppScope.of(context);
+    _top = MediaQuery.paddingOf(context).top;
+    _mobileInit = MediaQuery.sizeOf(context).width < 700;
     _scope.reload.addListener(_load);
     _scrollCtl.addListener(() {
       final b = _scrollCtl.hasClients && _scrollCtl.offset > 300;
       if (b != _bar) setState(() => _bar = b);
     });
     _load();
+    _scope.client.playlistHasImage(widget.info.id).then((v) {
+      if (mounted) setState(() => _hasImg = v);
+    }).catchError((_) {});
     _scope.client
         .playlistOverview(widget.info.id)
         .then((d) => mounted ? setState(() => _desc = d) : null)
@@ -218,6 +238,10 @@ class _PlaylistPageState extends State<PlaylistPage> {
     final r =
         await showPlaylistDetails(context, widget.info.id, _name, _coverV);
     if (r == null || !mounted) return;
+    if (r.deleted) {
+      Navigator.of(context).pop();
+      return;
+    }
     setState(() {
       _name = r.name;
       _scope.client
@@ -226,6 +250,289 @@ class _PlaylistPageState extends State<PlaylistPage> {
           .catchError((_) => null);
       if (r.photoChanged) _coverV++;
     });
+  }
+
+  Widget _circleBtn(IconData i, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.all(8),
+        child: Material(
+          color: _bar ? Colors.transparent : const Color(0x66000000),
+          shape: const CircleBorder(),
+          child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: Icon(i, size: 22)),
+        ),
+      );
+
+  SliverAppBar _mobileBar(Color tint, List<Track> view) => SliverAppBar(
+        pinned: true,
+        toolbarHeight: 56,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        automaticallyImplyLeading: false,
+        centerTitle: true,
+        backgroundColor: _bar
+            ? Color.lerp(tint, const Color(0xFF121212), 0.35)
+            : Colors.transparent,
+        leading: _circleBtn(Icons.arrow_back, () => Navigator.of(context).pop()),
+        title: AnimatedOpacity(
+          duration: const Duration(milliseconds: 200),
+          opacity: _bar ? 1 : 0,
+          child: Text(_name,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        ),
+        actions: [
+          if (_bar)
+            Padding(
+              padding: const EdgeInsets.only(right: 2),
+              child: _PlayButton(
+                  playing: false,
+                  size: 44,
+                  onTap: view.isEmpty ? null : () => _play(List.of(view), 0)),
+            ),
+          _circleBtn(
+              Icons.more_vert,
+              () => showPlaylistMenu(
+                  context, Offset.zero, PlaylistInfo(widget.info.id, _name, _tracks.length))),
+        ],
+      );
+
+  Widget _mobileHeader() {
+    final owner = _scope.client.session?.username ?? '';
+    final total = _tracks.fold<int>(0, (a, t) => a + (t.duration?.inSeconds ?? 0));
+    final h = total ~/ 3600;
+    final m = (total % 3600) ~/ 60;
+    final dur = h > 0 ? '${h}h ${m}min' : '$m min';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Center(
+          child: Container(
+            decoration: const BoxDecoration(boxShadow: [
+              BoxShadow(color: Color(0x66000000), blurRadius: 24, offset: Offset(0, 8))
+            ]),
+            child: PlaylistCover(
+                id: widget.info.id, size: 208, version: _coverV, radius: 2),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(_name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontSize: 22, height: 1.1, fontWeight: FontWeight.w800)),
+        if (_desc.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(_desc,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 13, color: AppColors.textSecondary)),
+        ],
+        const SizedBox(height: 10),
+        Row(children: [
+          const Icon(Icons.add, size: 22, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          CircleAvatar(
+              radius: 11,
+              backgroundColor: const Color(0xFF6A4FC4),
+              child: Text(owner.isEmpty ? '?' : owner[0].toUpperCase(),
+                  style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700))),
+          const SizedBox(width: 8),
+          Text(owner,
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          const Icon(Icons.public, size: 15, color: AppColors.textSecondary),
+          const SizedBox(width: 6),
+          Text('${_tracks.length} músicas • $dur',
+              style: const TextStyle(
+                  fontSize: 12.5, color: AppColors.textSecondary)),
+        ]),
+      ]),
+    );
+  }
+
+  int _tries = 0;
+  void _hideSearch() {
+    if (_hid || !mounted) return;
+    if (_scrollCtl.hasClients) {
+      final pos = _scrollCtl.position;
+      if (pos.maxScrollExtent >= _searchH) {
+        _hid = true;
+        if (pos.pixels < _searchH) _scrollCtl.jumpTo(_searchH);
+        return;
+      }
+    }
+    if (++_tries < 120) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _hideSearch());
+    }
+  }
+
+  bool _snapSearch(ScrollNotification n) {
+    if (n is ScrollEndNotification && _scrollCtl.hasClients) {
+      final o = _scrollCtl.offset;
+      if (o > 0.5 && o < _searchH - 0.5 && _q.isEmpty) {
+        _scrollCtl.animateTo(o < _searchH / 2 ? 0 : _searchH,
+            duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
+      }
+    }
+    return false;
+  }
+
+  Widget _mobileSearch() => SizedBox(
+        height: _searchH,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, _top + 8, 16, 12),
+          child: Row(children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                    color: const Color(0x33FFFFFF),
+                    borderRadius: BorderRadius.circular(6)),
+                child: Row(children: [
+                  const SizedBox(width: 10),
+                  const Icon(Icons.search, size: 22),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: TextField(
+                      controller: _qCtl,
+                      onChanged: (v) => setState(() => _q = v),
+                      style: const TextStyle(fontSize: 14),
+                      decoration: const InputDecoration(
+                          hintText: 'Procurar nesta playlist',
+                          hintStyle: TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w600),
+                          border: InputBorder.none,
+                          isDense: true),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Material(
+              color: const Color(0x33FFFFFF),
+              borderRadius: BorderRadius.circular(6),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: _sortSheet,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text('Ordenar',
+                      style:
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      );
+
+  Widget _mobileActions() {
+    final pl = _scope.player;
+    return ListenableBuilder(
+      listenable: pl,
+      builder: (context, _) {
+        final here = pl.queueSource == _name;
+        return Row(children: [
+          ListenableBuilder(
+            listenable: AutoDownload.instance,
+            builder: (_, __) {
+              final on = AutoDownload.instance.enabled(widget.info.id);
+              return IconButton(
+                iconSize: 26,
+                tooltip: 'Baixar',
+                color: on ? AppColors.accent : AppColors.textSecondary,
+                icon: on
+                    ? const DownloadBadge(size: 26)
+                    : const Icon(Icons.arrow_circle_down_outlined),
+                onPressed: () {
+                  AutoDownload.instance.toggle(widget.info.id);
+                  _toast(on
+                      ? 'Download automático desativado'
+                      : 'Baixando e monitorando novas músicas');
+                },
+              );
+            },
+          ),
+          IconButton(
+            iconSize: 24,
+            color: AppColors.textSecondary,
+            icon: const Icon(Icons.share_outlined),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: _name));
+              _toast('Nome copiado');
+            },
+          ),
+          const Spacer(),
+          IconButton(
+            iconSize: 28,
+            color: pl.shuffle ? AppColors.accent : AppColors.textSecondary,
+            icon: const Icon(Icons.shuffle),
+            onPressed: _tracks.isEmpty
+                ? null
+                : () {
+                    pl.toggleShuffle();
+                  },
+          ),
+          const SizedBox(width: 4),
+          _PlayButton(
+            playing: here && pl.playing,
+            onTap: _tracks.isEmpty
+                ? null
+                : () {
+                    if (here) {
+                      pl.togglePlay();
+                    } else {
+                      _play(List.of(_view), 0);
+                    }
+                  },
+          ),
+        ]);
+      },
+    );
+  }
+
+  Widget _chipsRow() => ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        children: [
+          _pill(Icons.add, 'Adicionar',
+              () => _toast('Use ⋮ em uma faixa → Adicionar à playlist')),
+          const SizedBox(width: 8),
+          _pill(Icons.tune, 'Mixar', () {
+            final l = List.of(_tracks)..shuffle();
+            if (l.isNotEmpty) _play(l, 0);
+          }),
+          const SizedBox(width: 8),
+          _pill(Icons.edit_outlined, 'Nome e detalhes', _rename),
+          const SizedBox(width: 8),
+          _pill(Icons.swap_vert, 'Classificar', _sortSheet),
+        ],
+      );
+
+  void _sortSheet() {
+    showSheetEntries(
+        context,
+        const Padding(
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Classificar por',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)))),
+        [
+          for (final k in _Sort.values.where((k) => k != _Sort.added))
+            MenuEntry(_labelOf(k),
+                icon: _sort == k ? Icons.check : null, onTap: () => _setSort(k)),
+        ]);
   }
 
   void _play(List<Track> l, int i) {
@@ -570,17 +877,34 @@ class _PlaylistPageState extends State<PlaylistPage> {
                 );
               }
 
-              return Stack(children: [
-                Container(
-                  height: 420,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0xFF5A5A5A), AppColors.background]),
+              if (!wide && !_hid) {
+                WidgetsBinding.instance
+                    .addPostFrameCallback((_) => _hideSearch());
+              }
+              return CoverTint(
+                  itemId: _tintId,
+                  builder: (context, tint) => Stack(children: [
+                AnimatedBuilder(
+                  animation: _scrollCtl,
+                  builder: (_, child) => Transform.translate(
+                      offset: Offset(0,
+                          -(_scrollCtl.hasClients ? _scrollCtl.offset : 0.0)),
+                      child: child),
+                  child: Container(
+                    height: 460,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [tint, AppColors.background]),
+                    ),
                   ),
                 ),
-                CustomScrollView(controller: _scrollCtl, slivers: [
+                NotificationListener<ScrollNotification>(
+                  onNotification: wide ? null : _snapSearch,
+                  child: CustomScrollView(controller: _scrollCtl, slivers: [
+                  if (!wide) SliverToBoxAdapter(child: _mobileSearch()),
+                  if (!wide) _mobileBar(tint, view) else
                   SliverAppBar(
                     pinned: true,
                     toolbarHeight: 56,
@@ -608,16 +932,43 @@ class _PlaylistPageState extends State<PlaylistPage> {
                       ]),
                     ),
                   ),
-                  SliverToBoxAdapter(child: _header(wide)),
                   SliverToBoxAdapter(
-                    child: Container(
-                      color: const Color(0x66000000),
-                      padding:
-                          EdgeInsets.fromLTRB(wide ? 24 : 16, 16, 16, 12),
-                      child: _actions(wide),
-                    ),
+                      child: wide
+                          ? _header(wide)
+                          : AnimatedBuilder(
+                              animation: _scrollCtl,
+                              builder: (_, child) {
+                                final o =
+                                    _scrollCtl.hasClients ? _scrollCtl.offset : 0.0;
+                                final f = (1 - (o - _searchH) / 280)
+                                    .clamp(0.0, 1.0)
+                                    .toDouble();
+                                return Opacity(
+                                    opacity: f,
+                                    child: Transform.scale(
+                                        scale: 0.85 + 0.15 * f,
+                                        alignment: Alignment.topCenter,
+                                        child: child));
+                              },
+                              child: _mobileHeader())),
+                  SliverToBoxAdapter(
+                    child: wide
+                        ? Container(
+                            color: const Color(0x66000000),
+                            padding: const EdgeInsets.fromLTRB(24, 16, 16, 12),
+                            child: _actions(wide),
+                          )
+                        : Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                            child: _mobileActions(),
+                          ),
                   ),
                   if (wide) SliverToBoxAdapter(child: _chips()),
+                  if (!wide)
+                    SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _ChipsHeader(
+                            child: _chipsRow(), color: const Color(0xF2181818))),
                   if (_error != null)
                     SliverToBoxAdapter(
                       child: Padding(
@@ -667,9 +1018,10 @@ class _PlaylistPageState extends State<PlaylistPage> {
                               child: tile(i)),
                           childCount: view.length),
                     ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                ]),
-              ]);
+                  SliverToBoxAdapter(
+                      child: SizedBox(height: bottomReserve(context))),
+                ])),
+              ]));
             }),
     );
   }
@@ -800,4 +1152,19 @@ class _TableHeader extends SliverPersistentHeaderDelegate {
       ]),
     );
   }
+}
+
+class _ChipsHeader extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  final Color color;
+  _ChipsHeader({required this.child, required this.color});
+  @override
+  double get minExtent => 52;
+  @override
+  double get maxExtent => 52;
+  @override
+  bool shouldRebuild(covariant _ChipsHeader old) => true;
+  @override
+  Widget build(BuildContext context, double shrink, bool overlaps) =>
+      Container(color: overlaps ? color : Colors.transparent, child: child);
 }

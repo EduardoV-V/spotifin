@@ -140,7 +140,7 @@ class _HomePageState extends State<HomePage> {
     return LayoutBuilder(builder: (context, c) {
       final wide = c.maxWidth >= 700;
       final pad = wide ? 24.0 : 16.0;
-      final card = wide ? 160.0 : 140.0;
+      final card = wide ? 160.0 : 150.0;
       return Stack(children: [
         Container(
           height: 300,
@@ -152,6 +152,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         SafeArea(
+        bottom: false,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null && _feed == null
@@ -185,24 +186,32 @@ class _HomePageState extends State<HomePage> {
     final lists = _scope.playlists.playlists;
     final albums = _albums(f.recent);
     final user = _scope.client.session?.username ?? '';
+    final chips = Row(children: [
+      _chip('Tudo', !_music, () => setState(() => _music = false)),
+      const SizedBox(width: 8),
+      _chip('Música', _music, () => setState(() => _music = true)),
+    ]);
     final top = <Widget>[
-      if (!wide)
-        Row(children: [
-          const Expanded(
-              child: Text('Início',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700))),
-          const DevicesButton(),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => openSettings(context),
-          ),
-        ]),
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(children: [
-          _chip('Tudo', !_music, () => setState(() => _music = false)),
-          const SizedBox(width: 8),
-          _chip('Música', _music, () => setState(() => _music = true)),
+          if (!wide) ...[
+            InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => openSettings(context),
+              child: CircleAvatar(
+                radius: 18,
+                backgroundColor: const Color(0xFF6A4FC4),
+                child: Text(user.isEmpty ? '?' : user[0].toUpperCase(),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, color: Colors.white)),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+              child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal, child: chips)),
         ]),
       ),
     ];
@@ -215,7 +224,9 @@ class _HomePageState extends State<HomePage> {
         ]),
       );
     }
-    return SmoothListView(padding: EdgeInsets.fromLTRB(pad, 8, pad, 24), children: [
+    return SmoothListView(
+        padding: EdgeInsets.fromLTRB(pad, 8, pad, bottomReserve(context)),
+        children: [
       ...top,
       const SizedBox(height: 8),
       ListenableBuilder(
@@ -225,14 +236,18 @@ class _HomePageState extends State<HomePage> {
       ),
       if (lists.isNotEmpty) ...[
         Padding(
-          padding: const EdgeInsets.fromLTRB(0, 28, 0, 12),
+          padding: const EdgeInsets.fromLTRB(0, 22, 0, 8),
           child: Row(children: [
             Expanded(
-              child: Text(user.isEmpty ? 'Suas playlists' : 'Playlists de $user',
+              child: Text('Suas playlists',
                   style: const TextStyle(
                       fontSize: 22, fontWeight: FontWeight.w700)),
             ),
             TextButton(
+              style: TextButton.styleFrom(
+                  minimumSize: Size.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap),
               onPressed: () => setState(() => _allPl = !_allPl),
               child: Text(_allPl ? 'Mostrar menos' : 'Mostrar tudo',
                   style: const TextStyle(
@@ -266,8 +281,72 @@ class _HomePageState extends State<HomePage> {
               ),
           ]),
       ],
+      ListenableBuilder(
+        listenable: RecentStore.instance,
+        builder: (context, _) {
+          final arts = RecentStore.instance.items
+              .where((e) => e.kind == 'artist')
+              .take(15)
+              .toList();
+          if (arts.isEmpty) return const SizedBox.shrink();
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _title('Artistas recentes'),
+            SizedBox(
+              height: card + 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: arts.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 16),
+                itemBuilder: (_, i) {
+                  final r = arts[i];
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _openRecent(context, r),
+                    child: SizedBox(
+                      width: card,
+                      child: Column(children: [
+                        ClipOval(
+                            child: SizedBox(
+                                width: card, height: card, child: _RecentImage(r))),
+                        const SizedBox(height: 8),
+                        Text(r.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 14)),
+                        const Text('Artista',
+                            style: TextStyle(
+                                fontSize: 12, color: AppColors.textSecondary)),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ]);
+        },
+      ),
       if (albums.isNotEmpty) ...[
-        _title('Recentes'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(0, 22, 0, 8),
+          child: Row(children: [
+            const Expanded(
+                child: Text('Recentes',
+                    style:
+                        TextStyle(fontSize: 22, fontWeight: FontWeight.w700))),
+            TextButton(
+              style: TextButton.styleFrom(
+                  minimumSize: Size.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              onPressed: () => setState(() => _music = true),
+              child: const Text('Mostrar tudo',
+                  style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ]),
+        ),
         _row(card, [
           for (final a in albums.take(20))
             _CardItem(
@@ -332,13 +411,13 @@ class _HomePageState extends State<HomePage> {
       );
 
   Widget _title(String t) => Padding(
-        padding: const EdgeInsets.fromLTRB(0, 28, 0, 12),
+        padding: const EdgeInsets.fromLTRB(0, 22, 0, 8),
         child: Text(t,
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
       );
 
   Widget _row(double card, List<Widget> children) => SizedBox(
-        height: card + 62,
+        height: card + 58,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: children.length,
@@ -399,13 +478,15 @@ class _HomePageState extends State<HomePage> {
         ));
       }
     }
-    return GridView.count(
-      crossAxisCount: cols,
+    return GridView(
+      padding: EdgeInsets.zero,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
-      childAspectRatio: cols == 4 ? 4.4 : 3.2,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: cols,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          mainAxisExtent: 56),
       children: items,
     );
   }

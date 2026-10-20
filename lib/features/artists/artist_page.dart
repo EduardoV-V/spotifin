@@ -10,6 +10,7 @@ import '../../core/i18n/strings.dart';
 import '../../core/jellyfin/models.dart';
 import '../../widgets/context_menu.dart';
 import '../../widgets/cover.dart';
+import '../../widgets/track_tile.dart';
 import '../../widgets/smooth_scroll.dart';
 
 String fmtPlays(int n) {
@@ -121,6 +122,87 @@ class _ArtistPageState extends State<ArtistPage> {
     ];
   }
 
+  Widget _circle(IconData i, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.all(8),
+        child: Material(
+          color: const Color(0x66000000),
+          shape: const CircleBorder(),
+          child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: Icon(i, size: 22)),
+        ),
+      );
+
+  Widget _playBtn(List<Track> pop, double size) => InkWell(
+        customBorder: const CircleBorder(),
+        onTap: pop.isEmpty ? null : () => _play(pop, 0),
+        child: Container(
+          width: size,
+          height: size,
+          decoration: const BoxDecoration(
+              color: AppColors.accent, shape: BoxShape.circle),
+          child: Icon(Icons.play_arrow, color: Colors.black, size: size * 0.6),
+        ),
+      );
+
+  Widget _followBtn() => OutlinedButton(
+        style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: const BorderSide(color: Color(0xFF8A8A8A)),
+            shape: const StadiumBorder()),
+        onPressed: _toggleFollow,
+        child: Text(S.t(_following ? 'following' : 'follow'),
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+      );
+
+  List<Track> get _likedBy => _scope.favorites.tracks
+      .where((t) => t.artist.toLowerCase().contains(_name.toLowerCase()))
+      .toList();
+
+  Widget _likedRow() {
+    final l = _likedBy;
+    return InkWell(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => _LikedByPage(name: _name, tracks: l))),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        child: Row(children: [
+          Stack(children: [
+            ClipOval(
+                child: SizedBox(
+                    width: 52,
+                    height: 52,
+                    child: _info?.picture != null
+                        ? Image.network(_info!.picture!, fit: BoxFit.cover)
+                        : Container(color: AppColors.elevated))),
+            const Positioned(
+                right: 0,
+                bottom: 0,
+                child: CircleAvatar(
+                    radius: 9,
+                    backgroundColor: AppColors.accent,
+                    child: Icon(Icons.favorite, size: 11, color: Colors.black))),
+          ]),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Músicas curtidas',
+                      style:
+                          TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  Text('${l.length} músicas • $_name',
+                      style: const TextStyle(
+                          fontSize: 12.5, color: AppColors.textSecondary)),
+                ]),
+          ),
+          const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+        ]),
+      ),
+    );
+  }
+
   void _play(List<Track> l, int i) {
     RecentStore.instance.add('artist', _name, _name);
     _scope.player.playQueue(List.of(l), i, source: _name);
@@ -136,7 +218,7 @@ class _ArtistPageState extends State<ArtistPage> {
     return Scaffold(
       body: LayoutBuilder(builder: (context, c) {
         final wide = c.maxWidth >= 700;
-        final h = wide ? 380.0 : 300.0;
+        final h = wide ? 380.0 : 340.0;
         return CustomScrollView(controller: _scroll, slivers: [
           SliverAppBar(
             pinned: true,
@@ -146,12 +228,42 @@ class _ArtistPageState extends State<ArtistPage> {
             scrolledUnderElevation: 0,
             surfaceTintColor: Colors.transparent,
             backgroundColor: const Color(0xFF181818),
+            automaticallyImplyLeading: wide,
+            centerTitle: !wide,
+            leading: wide ? null : _circle(Icons.arrow_back, () => Navigator.of(context).pop()),
+            actions: wide
+                ? null
+                : [
+                    _circle(
+                        Icons.more_vert,
+                        () => showSheetEntries(
+                                context,
+                                Padding(
+                                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                    child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(_name,
+                                            style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w700)))),
+                                [
+                                  MenuEntry('Tocar aleatório',
+                                      icon: Icons.shuffle,
+                                      onTap: pop.isEmpty
+                                          ? null
+                                          : () => _play(List.of(pop)..shuffle(), 0)),
+                                  MenuEntry(
+                                      _following ? 'Deixar de seguir' : 'Seguir',
+                                      icon: Icons.person_add_alt,
+                                      onTap: _toggleFollow),
+                                ])),
+                  ],
             title: AnimatedOpacity(
               duration: const Duration(milliseconds: 200),
               opacity: _bar ? 1 : 0,
               child: Text(_name,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      fontSize: wide ? 22 : 16, fontWeight: FontWeight.w700)),
             ),
             flexibleSpace: LayoutBuilder(builder: (context, bc) {
               final t = ((bc.maxHeight - 56) / (h - 56)).clamp(0.0, 1.0);
@@ -196,7 +308,7 @@ class _ArtistPageState extends State<ArtistPage> {
                             child: Text(_name,
                                 maxLines: 1,
                                 style: TextStyle(
-                                    fontSize: wide ? 96 : 56,
+                                    fontSize: wide ? 96 : 44,
                                     height: 1.0,
                                     letterSpacing: -2,
                                     fontWeight: FontWeight.w900)),
@@ -220,41 +332,39 @@ class _ArtistPageState extends State<ArtistPage> {
           SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 16, 16, 8),
-              child: Row(children: [
-                InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: pop.isEmpty ? null : () => _play(pop, 0),
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: const BoxDecoration(
-                        color: AppColors.accent, shape: BoxShape.circle),
-                    child: const Icon(Icons.play_arrow,
-                        color: Colors.black, size: 30),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                IconButton(
-                  iconSize: 28,
-                  color: AppColors.textSecondary,
-                  icon: const Icon(Icons.shuffle),
-                  onPressed: pop.isEmpty
-                      ? null
-                      : () => _play(List.of(pop)..shuffle(), 0),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0xFF8A8A8A)),
-                      shape: const StadiumBorder()),
-                  onPressed: _toggleFollow,
-                  child: Text(S.t(_following ? 'following' : 'follow'),
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
-                ),
-              ]),
+              child: wide
+                  ? Row(children: [
+                      _playBtn(pop, 48),
+                      const SizedBox(width: 12),
+                      IconButton(
+                        iconSize: 28,
+                        color: AppColors.textSecondary,
+                        icon: const Icon(Icons.shuffle),
+                        onPressed: pop.isEmpty
+                            ? null
+                            : () => _play(List.of(pop)..shuffle(), 0),
+                      ),
+                      const SizedBox(width: 8),
+                      _followBtn(),
+                    ])
+                  : Row(children: [
+                      _followBtn(),
+                      const Spacer(),
+                      IconButton(
+                        iconSize: 28,
+                        color: AppColors.textSecondary,
+                        icon: const Icon(Icons.shuffle),
+                        onPressed: pop.isEmpty
+                            ? null
+                            : () => _play(List.of(pop)..shuffle(), 0),
+                      ),
+                      const SizedBox(width: 4),
+                      _playBtn(pop, 56),
+                    ]),
             ),
           ),
+          if (!wide && _likedBy.isNotEmpty)
+            SliverToBoxAdapter(child: _likedRow()),
           if (tracks == null)
             const SliverToBoxAdapter(
                 child: Padding(
@@ -264,7 +374,7 @@ class _ArtistPageState extends State<ArtistPage> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 8, 16, 8),
-                child: Text(S.t('popular'),
+                child: Text(wide ? S.t('popular') : 'Mais ouvidas',
                     style: const TextStyle(
                         fontSize: 22, fontWeight: FontWeight.w700)),
               ),
@@ -298,7 +408,8 @@ class _ArtistPageState extends State<ArtistPage> {
               SliverToBoxAdapter(child: _discography(wide)),
             if (_info?.bioFor(S.lang) != null)
               SliverToBoxAdapter(child: _about(wide)),
-            const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            SliverToBoxAdapter(
+                child: SizedBox(height: bottomReserve(context) + 8)),
           ],
         ]);
       }),
@@ -474,13 +585,22 @@ class _PopularRowState extends State<_PopularRow> {
                 const SizedBox(width: 12),
                 Expanded(
                   flex: 5,
-                  child: Text(t.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: cur ? AppColors.accent : Colors.white)),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(t.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                color: cur ? AppColors.accent : Colors.white)),
+                        if (!widget.wide && widget.global > 0)
+                          Text(fmtPlays(widget.global),
+                              style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppColors.textSecondary)),
+                      ]),
                 ),
                 if (widget.wide)
                   Expanded(
@@ -491,9 +611,9 @@ class _PopularRowState extends State<_PopularRow> {
                               widget.global > 0 ? fmtPlays(widget.global) : '',
                               style: dim))),
                 SizedBox(
-                  width: 40,
+                  width: widget.wide ? 40 : 28,
                   child: Opacity(
-                    opacity: _hover || fav ? 1 : 0,
+                    opacity: (_hover || fav) && (widget.wide || fav) ? 1 : 0,
                     child: IconButton(
                       visualDensity: VisualDensity.compact,
                       icon: Icon(
@@ -506,17 +626,44 @@ class _PopularRowState extends State<_PopularRow> {
                     ),
                   ),
                 ),
-                SizedBox(
-                    width: 48,
-                    child: Text(
-                        t.duration == null ? '' : fmtDuration(t.duration!),
-                        textAlign: TextAlign.center,
-                        style: dim)),
+                if (widget.wide)
+                  SizedBox(
+                      width: 48,
+                      child: Text(
+                          t.duration == null ? '' : fmtDuration(t.duration!),
+                          textAlign: TextAlign.center,
+                          style: dim))
+                else
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.more_vert,
+                        size: 22, color: AppColors.textSecondary),
+                    onPressed: () => showTrackMenu(context, Offset.zero, t),
+                  ),
               ]),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _LikedByPage extends StatelessWidget {
+  final String name;
+  final List<Track> tracks;
+  const _LikedByPage({required this.name, required this.tracks});
+  @override
+  Widget build(BuildContext context) {
+    final p = AppScope.of(context).player;
+    return Scaffold(
+      appBar: AppBar(title: Text('Músicas curtidas • $name')),
+      body: ListView.builder(
+        padding: EdgeInsets.only(bottom: bottomReserve(context)),
+        itemCount: tracks.length,
+        itemBuilder: (_, i) => TrackTile(
+            track: tracks[i], onTap: () => p.playQueue(List.of(tracks), i)),
+      ),
     );
   }
 }

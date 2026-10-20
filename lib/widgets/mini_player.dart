@@ -4,6 +4,7 @@ import '../app/app_scope.dart';
 import '../app/theme.dart';
 import '../core/audio/player_service.dart';
 import '../features/player/now_playing_page.dart';
+import '../core/cover_color.dart';
 import 'cover.dart';
 import 'devices_sheet.dart';
 import 'volume_control.dart';
@@ -19,55 +20,79 @@ class MiniPlayer extends StatelessWidget {
       builder: (context, _) {
         final t = p.current;
         if (t == null) return const SizedBox.shrink();
+        final fav = AppScope.of(context).favorites;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-          child: Material(
-            color: AppColors.elevated,
-            borderRadius: BorderRadius.circular(8),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  fullscreenDialog: true,
-                  builder: (_) => const NowPlayingPage())),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const PlayingOnBar(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 8, 4, 6),
-                  child: Row(children: [
-                    Cover(track: t, size: 44),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(t.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w500)),
-                            Text(t.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textSecondary)),
-                          ]),
-                    ),
-                    const DevicesButton(),
-                    IconButton(
-                      icon: Icon(p.playing ? Icons.pause : Icons.play_arrow),
-                      onPressed: () => p.togglePlay(),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.skip_next),
-                      onPressed: () => p.next(),
-                    ),
-                    if (MediaQuery.sizeOf(context).width >= 800)
-                      const VolumeControl(),
-                  ]),
-                ),
-                _MiniProgress(player: p),
-              ]),
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          child: CoverTint(
+            itemId: t.albumId ?? t.id,
+            fallback: const Color(0xFF2A3A55),
+            builder: (context, color) => Material(
+              color: color,
+              borderRadius: BorderRadius.circular(8),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                        fullscreenDialog: true,
+                        builder: (_) => const NowPlayingPage())),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const PlayingOnBar(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 4, 4),
+                    child: Row(children: [
+                      Cover(track: t, size: 40),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(t.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700)),
+                              Text(t.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 12, color: Colors.white70)),
+                            ]),
+                      ),
+                      const DevicesButton(),
+                      ListenableBuilder(
+                        listenable: fav,
+                        builder: (_, __) => IconButton(
+                          icon: Icon(
+                              fav.isFavorite(t.id)
+                                  ? Icons.check_circle
+                                  : Icons.add_circle_outline,
+                              color: fav.isFavorite(t.id)
+                                  ? AppColors.accent
+                                  : Colors.white),
+                          onPressed: () => fav.toggle(t),
+                        ),
+                      ),
+                      IconButton(
+                        iconSize: 30,
+                        icon: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 150),
+                          child: Icon(
+                              p.playing ? Icons.pause : Icons.play_arrow,
+                              key: ValueKey(p.playing)),
+                        ),
+                        onPressed: () => p.togglePlay(),
+                      ),
+                    ]),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                    child: ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: _MiniProgress(player: p)),
+                  ),
+                ]),
+              ),
             ),
           ),
         );

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'lyrics.dart';
 import 'models.dart';
 
 class JellyfinException implements Exception {
@@ -128,10 +129,12 @@ class JellyfinClient {
     String sortBy = 'SortName',
     String sortOrder = 'Ascending',
     String? filters,
+    String? genre,
   }) async {
     final s = _requireSession();
     final uri = Uri.parse('${s.serverUrl}/Items').replace(queryParameters: {
       if (filters != null) 'filters': filters,
+      if (genre != null) 'genres': genre,
       'userId': s.userId,
       'includeItemTypes': 'Audio',
       'recursive': 'true',
@@ -378,9 +381,43 @@ class JellyfinClient {
   Future<void> movePlaylistItem(String id, String entryId, int index) =>
       _send('POST', '/Playlists/$id/Items/$entryId/Move/$index');
 
+  List<String>? _genres;
+
+  Future<List<String>> genres() async {
+    if (_genres != null) return _genres!;
+    final l = await _items('/MusicGenres', {'sortBy': 'SortName', 'fields': ''});
+    return _genres = [
+      for (final e in l) (e as Map<String, dynamic>)['Name'] as String
+    ];
+  }
+
   Future<List<Track>> instantMix(String id, {int limit = 100}) async {
     final items = await _items('/Items/$id/InstantMix', {'limit': '$limit'});
     return items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  final _lyricsCache = <String, List<LyricLine>>{};
+
+  /// Letra da faixa (vazia se o servidor não tiver). Start em ticks de 100ns.
+  Future<List<LyricLine>> lyrics(String id) async {
+    final c = _lyricsCache[id];
+    if (c != null) return c;
+    var out = <LyricLine>[];
+    try {
+      final s = _requireSession();
+      final res = await _http.get(Uri.parse('${s.serverUrl}/Audio/$id/Lyrics'),
+          headers: authHeaders);
+      if (res.statusCode == 200) {
+        final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        for (final e in (j['Lyrics'] as List? ?? const [])) {
+          final m = e as Map<String, dynamic>;
+          final st = m['Start'];
+          out.add(LyricLine(
+              st is num ? (st / 10000).round() : null, (m['Text'] ?? '') as String));
+        }
+      }
+    } catch (_) {}
+    return _lyricsCache[id] = out;
   }
 
   final _artistImg = <String, String?>{};
@@ -431,6 +468,12 @@ class JellyfinClient {
     final res = await _send('GET', '/Items/$id');
     final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     return (j['Overview'] as String?) ?? '';
+  }
+
+  Future<bool> playlistHasImage(String id) async {
+    final res = await _send('GET', '/Items/$id');
+    final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    return ((j['ImageTags'] as Map?) ?? const {}).containsKey('Primary');
   }
 
   Future<void> setPlaylistOverview(String id, String overview) async {
