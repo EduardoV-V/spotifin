@@ -1,3 +1,5 @@
+import '../../widgets/net_image.dart';
+import '../../widgets/user_avatar.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
@@ -199,13 +201,7 @@ class _HomePageState extends State<HomePage> {
             InkWell(
               customBorder: const CircleBorder(),
               onTap: () => openSettings(context),
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: const Color(0xFF6A4FC4),
-                child: Text(user.isEmpty ? '?' : user[0].toUpperCase(),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, color: Colors.white)),
-              ),
+              child: const UserAvatar(radius: 18),
             ),
             const SizedBox(width: 12),
           ],
@@ -292,7 +288,7 @@ class _HomePageState extends State<HomePage> {
           return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _title('Artistas recentes'),
             SizedBox(
-              height: card + 40,
+              height: card + 50,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: arts.length,
@@ -300,6 +296,7 @@ class _HomePageState extends State<HomePage> {
                 itemBuilder: (_, i) {
                   final r = arts[i];
                   return InkWell(
+                    key: ValueKey('ra_${r.id}'),
                     borderRadius: BorderRadius.circular(8),
                     onTap: () => _openRecent(context, r),
                     child: SizedBox(
@@ -492,27 +489,101 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _RecentImage extends StatelessWidget {
+class _RecentImage extends StatefulWidget {
   final RecentItem r;
   const _RecentImage(this.r);
   @override
-  Widget build(BuildContext context) {
-    final c = AppScope.of(context).client;
-    if (r.kind == 'artist') {
-      return FutureBuilder<ArtistInfo?>(
-        future: ArtistInfoService.instance.get(r.name),
-        builder: (_, s) {
-          final u = s.data?.picture;
-          return u == null
-              ? Container(
-                  color: AppColors.elevated,
-                  child: const Icon(Icons.person,
-                      color: AppColors.textSecondary))
-              : Image.network(u, fit: BoxFit.cover);
-        },
-      );
+  State<_RecentImage> createState() => _RecentImageState();
+}
+
+class _RecentImageState extends State<_RecentImage> {
+  // Candidatas em ordem; se uma falhar ao carregar, tenta a próxima.
+  final List<(String, bool)> _cands = [];
+  int _i = 0;
+  bool _started = false;
+
+  static bool _ok(String? u) =>
+      u != null && u.isNotEmpty && !u.contains('/artist//');
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started) _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RecentImage old) {
+    super.didUpdateWidget(old);
+    // A lista desloca itens quando entra um artista novo: recarrega.
+    if (old.r.kind != widget.r.kind || old.r.id != widget.r.id) {
+      _cands.clear();
+      _i = 0;
+      _load();
     }
-    return Image.network(c.imageUri(r.id, maxWidth: 120).toString(),
+  }
+
+  void _load() {
+    if (widget.r.kind != 'artist') return;
+    _started = true;
+    final c = AppScope.of(context).client;
+    final name = widget.r.name;
+    final token = widget.r.id;
+    void addInfo(ArtistInfo? i) {
+      for (final u in [i?.picture, i?.hero]) {
+        if (_ok(u) && !_cands.any((e) => e.$1 == u)) _cands.add((u!, false));
+      }
+    }
+
+    addInfo(ArtistInfoService.instance.cached(name));
+    // Foto do Jellyfin como última candidata (é a que a página do artista usa
+    // quando a foto externa não existe ou não carrega).
+    c
+        .artistImage(ArtistInfoService.primary(name))
+        .timeout(const Duration(seconds: 8))
+        .then((jf) {
+      if (!mounted || widget.r.id != token || jf == null) return;
+      if (!_cands.any((e) => e.$1 == jf)) setState(() => _cands.add((jf, true)));
+    }).catchError((_) {});
+    if (ArtistInfoService.instance.cached(name) == null) {
+      ArtistInfoService.instance.get(name).then((i) {
+        if (!mounted || widget.r.id != token) return;
+        final before = _cands.length;
+        // Insere as externas antes da do Jellyfin.
+        final jfIdx = _cands.indexWhere((e) => e.$2);
+        final tmp = <(String, bool)>[];
+        for (final u in [i?.picture, i?.hero]) {
+          if (_ok(u) && !_cands.any((e) => e.$1 == u)) tmp.add((u!, false));
+        }
+        if (tmp.isNotEmpty) {
+          setState(() => _cands.insertAll(jfIdx < 0 ? _cands.length : jfIdx, tmp));
+        }
+        if (before == _cands.length && tmp.isEmpty) return;
+      }).catchError((_) {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.r;
+    final c = AppScope.of(context).client;
+    final ph = Container(
+        color: AppColors.elevated,
+        child: const Icon(Icons.person, color: AppColors.textSecondary));
+    if (r.kind == 'artist') {
+      if (_i >= _cands.length) return ph;
+      final (u, jf) = _cands[_i];
+      return NetImage(u,
+          key: ValueKey(u),
+          headers: jf ? c.authHeaders : null,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _i++);
+            });
+            return ph;
+          });
+    }
+    return NetImage(c.imageUri(r.id, maxWidth: 120).toString(),
         headers: c.authHeaders,
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => Container(color: AppColors.elevated));
@@ -538,7 +609,7 @@ class _PlaylistImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final client = AppScope.of(context).client;
-    return Image.network(
+    return NetImage(
       client.imageUri(p.id, maxWidth: (size * 2).round()).toString(),
       headers: client.authHeaders,
       fit: BoxFit.cover,

@@ -17,6 +17,7 @@ Future<void> applyAccount(
   await SessionStore.setActive(s.userId);
   await scope.downloads.switchUser();
   await scope.favorites.switchUser();
+  await scope.outbox.switchUser();
   await scope.playlists.switchUser();
   unawaited(scope.sync.start());
   await scope.sync.switchUser();

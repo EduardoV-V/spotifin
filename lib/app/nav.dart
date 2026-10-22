@@ -13,3 +13,14 @@ void pushShell(BuildContext context, Route<dynamic> route) {
     Navigator.of(context).push(route);
   }
 }
+
+/// Altura real do teclado (o shell zera viewInsets para o teclado sobrepor as
+/// telas em vez de empurrá-las). Telas com campos de texto usam isto.
+class KeyboardInset extends InheritedWidget {
+  final double value;
+  const KeyboardInset({super.key, required this.value, required super.child});
+  static double of(BuildContext c) =>
+      c.dependOnInheritedWidgetOfExactType<KeyboardInset>()?.value ?? 0;
+  @override
+  bool updateShouldNotify(KeyboardInset old) => old.value != value;
+}

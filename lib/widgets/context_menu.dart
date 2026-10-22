@@ -1,3 +1,4 @@
+import 'net_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -469,7 +470,7 @@ class _IdImage extends StatelessWidget {
       child: SizedBox(
         width: 48,
         height: 48,
-        child: Image.network(c.imageUri(id, maxWidth: 120).toString(),
+        child: NetImage(c.imageUri(id, maxWidth: 120).toString(),
             headers: c.authHeaders,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => Container(color: AppColors.elevated)),

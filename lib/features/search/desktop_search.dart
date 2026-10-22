@@ -1,3 +1,4 @@
+import '../../widgets/net_image.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -31,7 +32,7 @@ class ArtistAvatar extends StatelessWidget {
                 child: Icon(Icons.person,
                     size: size * 0.5, color: AppColors.textSecondary));
             if (url != null) {
-              return Image.network(url,
+              return NetImage(url,
                   fit: BoxFit.cover, errorBuilder: (_, __, ___) => fallback);
             }
             if (s.connectionState != ConnectionState.done) return fallback;
@@ -40,7 +41,7 @@ class ArtistAvatar extends StatelessWidget {
               future: client.artistImage(ArtistInfoService.primary(name)),
               builder: (_, j) => j.data == null
                   ? fallback
-                  : Image.network(j.data!,
+                  : NetImage(j.data!,
                       headers: client.authHeaders,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => fallback),
@@ -389,6 +390,7 @@ class _SearchResultsPageState extends State<SearchResultsPage> {
         final qb = b.toLowerCase().contains(q) ? 1 : 0;
         return qb != qa ? qb - qa : c[b]!.compareTo(c[a]!);
       });
+    ArtistInfoService.instance.prefetch(k.take(12));
     return k;
   }
 

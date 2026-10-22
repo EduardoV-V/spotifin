@@ -1,3 +1,5 @@
+import '../../widgets/net_image.dart';
+import '../../widgets/user_avatar.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -57,13 +59,7 @@ class _SearchPageState extends State<SearchPage> {
             InkWell(
               customBorder: const CircleBorder(),
               onTap: () => openSettings(context),
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: const Color(0xFF6A4FC4),
-                child: Text(user.isEmpty ? '?' : user[0].toUpperCase(),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, color: Colors.white)),
-              ),
+              child: const UserAvatar(radius: 18),
             ),
             const SizedBox(width: 12),
             const Expanded(
@@ -305,6 +301,7 @@ class _MobileSearchPageState extends State<MobileSearchPage> {
           final a = ArtistInfoService.primary(t.artist);
           count[a] = (count[a] ?? 0) + 1;
         }
+        ArtistInfoService.instance.prefetch(count.keys.take(8));
         final ql = q.toLowerCase();
         final named = count.keys.where((a) => a.toLowerCase().contains(ql));
         final top = named.isEmpty
@@ -357,7 +354,7 @@ class _MobileSearchPageState extends State<MobileSearchPage> {
       child: SizedBox(
         width: size,
         height: size,
-        child: Image.network(
+        child: NetImage(
             c.imageUri(cover, maxWidth: (size * 2).round()).toString(),
             headers: c.authHeaders,
             fit: BoxFit.cover,

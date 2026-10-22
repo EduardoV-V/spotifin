@@ -250,6 +250,10 @@ class _PlaylistPageState extends State<PlaylistPage> {
           .catchError((_) => null);
       if (r.photoChanged) _coverV++;
     });
+    if (r.localCover) {
+      _toast(
+          'Seu usuário no Jellyfin não pode enviar imagens (HTTP 403). A capa foi salva só neste aparelho.');
+    }
   }
 
   Widget _circleBtn(IconData i, VoidCallback onTap) => Padding(

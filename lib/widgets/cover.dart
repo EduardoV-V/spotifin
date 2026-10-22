@@ -1,3 +1,4 @@
+import 'net_image.dart';
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
@@ -14,7 +15,7 @@ class Cover extends StatelessWidget {
   Widget build(BuildContext context) {
     final client = AppScope.of(context).client;
     final px = ((size ?? 400) * 2).round().clamp(120, 800);
-    final img = Image.network(
+    final img = NetImage(
       client.imageUri(track.albumId ?? track.id, maxWidth: px).toString(),
       headers: client.authHeaders,
       fit: BoxFit.cover,

@@ -70,11 +70,16 @@ class TrackTile extends StatelessWidget {
     final player = scope.player;
     final downloads = scope.downloads;
     return ListenableBuilder(
-      listenable: Listenable.merge([player, downloads, scope.favorites]),
+      listenable: Listenable.merge([player, downloads, scope.favorites, scope.conn]),
       builder: (context, _) {
         final isCurrent = player.current?.id == track.id;
         final dl = downloads.itemFor(track.id);
         final state = dl?.state;
+        final unavailable =
+            scope.conn.offline && state != DownloadState.completed;
+        final tap = unavailable
+            ? () => _snack(context, 'Sem conexão: faixa não baixada.')
+            : onTap;
         final menuW = PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
               color: AppColors.elevated,
@@ -150,14 +155,17 @@ class TrackTile extends StatelessWidget {
             showAdded: showAdded,
             downloaded: state == DownloadState.completed,
             favorite: scope.favorites.isFavorite(track.id),
-            onTap: onTap,
+            onTap: tap,
+            unavailable: unavailable,
             trailing: menuW,
             onFav: () => scope.favorites.toggle(track),
             onMenu: (p) => showTrackMenu(context, p, track, onRemove: onRemove),
           );
         }
-        return InkWell(
-          onTap: onTap,
+        return Opacity(
+          opacity: unavailable ? 0.4 : 1,
+          child: InkWell(
+          onTap: tap,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 4, 6),
             child: Row(children: [
@@ -209,7 +217,7 @@ class TrackTile extends StatelessWidget {
               ),
             ]),
           ),
-        );
+        ));
       },
     );
   }
@@ -240,6 +248,7 @@ class _WideRow extends StatefulWidget {
   final bool showAdded;
   final bool downloaded;
   final bool favorite;
+  final bool unavailable;
   final VoidCallback onTap;
   final VoidCallback onFav;
   final Widget trailing;
@@ -253,6 +262,7 @@ class _WideRow extends StatefulWidget {
       required this.showAdded,
       required this.downloaded,
       required this.favorite,
+      this.unavailable = false,
       required this.onTap,
       required this.onFav,
       required this.trailing});
@@ -280,7 +290,9 @@ class _WideRowState extends State<_WideRow> {
               fontSize: 15,
               color: green ? AppColors.accent : AppColors.textSecondary));
     }
-    return MouseRegion(
+    return Opacity(
+      opacity: widget.unavailable ? 0.4 : 1,
+      child: MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
@@ -383,6 +395,6 @@ class _WideRowState extends State<_WideRow> {
           ]),
         ),
       ),
-    );
+    ));
   }
 }

@@ -159,9 +159,11 @@ class Track {
             ? null
             : Duration(milliseconds: j['durationMs'] as int),
         file: AudioFileInfo.fromStored(j['file'] as Map<String, dynamic>),
+        playlistItemId: j['pi'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
+        'pi': playlistItemId,
         'id': id,
         'albumId': albumId,
         'added': added?.toIso8601String(),

@@ -1,3 +1,5 @@
+import '../core/artists/artist_info_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -29,6 +31,26 @@ class _AppShellState extends State<AppShell> {
     if (_adInit) return;
     _adInit = true;
     AutoDownload.instance.start(AppScope.of(context));
+    _warmUp(AppScope.of(context));
+  }
+
+  /// Em segundo plano, baixa aos poucos fotos/dados dos artistas da biblioteca
+  /// (150 por abertura) para que já estejam prontos na busca e offline.
+  Future<void> _warmUp(AppScope scope) async {
+    await Future.delayed(const Duration(seconds: 6));
+    try {
+      final l = await scope.client.libraryArtists();
+      if (l.isEmpty) return;
+      final sp = await SharedPreferences.getInstance();
+      final key = 'warm_idx_${scope.client.session?.userId}';
+      var i = (sp.getInt(key) ?? 0) % l.length;
+      for (var n = 0; n < 150 && n < l.length; n++) {
+        if (!mounted) return;
+        ArtistInfoService.instance.prefetch([l[(i + n) % l.length].name]);
+        if (n % 3 == 2) await Future.delayed(const Duration(milliseconds: 800));
+      }
+      await sp.setInt(key, (i + 150) % l.length);
+    } catch (_) {}
   }
 
   static const _items = [
@@ -68,9 +90,12 @@ class _AppShellState extends State<AppShell> {
           Positioned.fill(
             child: MediaQuery(
               data: mq.copyWith(
+                  viewInsets: mq.viewInsets.copyWith(bottom: 0),
                   padding: mq.padding
                       .copyWith(bottom: mq.padding.bottom + reserve)),
-              child: Theme(
+              child: KeyboardInset(
+                value: mq.viewInsets.bottom,
+                child: Theme(
                 data: theme.copyWith(
                     snackBarTheme: SnackBarThemeData(
                         behavior: SnackBarBehavior.floating,
@@ -91,7 +116,7 @@ class _AppShellState extends State<AppShell> {
                     ),
                   ),
                 ),
-              ),
+              )),
             ),
           ),
           Positioned(
@@ -112,6 +137,19 @@ class _AppShellState extends State<AppShell> {
               ),
               padding: const EdgeInsets.only(top: 16),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
+                ListenableBuilder(
+                  listenable: AppScope.of(context).conn,
+                  builder: (context, _) => AppScope.of(context).conn.offline
+                      ? Container(
+                          width: double.infinity,
+                          color: const Color(0xFF282828),
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: const Text('Offline • só músicas baixadas',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.white70)))
+                      : const SizedBox.shrink(),
+                ),
                 const MiniPlayer(),
                 _NavBar(
                     index: _index,

@@ -5,13 +5,16 @@ import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
 import '../app/theme.dart';
+import '../core/cache/local_covers.dart';
 import 'playlist_cover.dart';
 
 class PlaylistEdit {
   final String name;
   final bool photoChanged;
   final bool deleted;
-  const PlaylistEdit(this.name, this.photoChanged, {this.deleted = false});
+  final bool localCover;
+  const PlaylistEdit(this.name, this.photoChanged,
+      {this.deleted = false, this.localCover = false});
 }
 
 /// Diálogo "Nome e detalhes": nome, descrição e foto da playlist.
@@ -102,11 +105,24 @@ class _DetailsState extends State<_Details> {
       if (_desc.text != _descOrig) {
         await scope.client.setPlaylistOverview(widget.id, _desc.text);
       }
+      var localCover = false;
       if (_img != null) {
-        await scope.client.uploadPlaylistImage(widget.id, _img!, _mime);
+        try {
+          await scope.client.uploadPlaylistImage(widget.id, _img!, _mime);
+          await LocalCovers.remove(widget.id);
+        } catch (e) {
+          if ('$e'.contains('403')) {
+            // Sem permissão no Jellyfin: guarda a capa só neste aparelho.
+            await LocalCovers.save(widget.id, _img!);
+            localCover = true;
+          } else {
+            rethrow;
+          }
+        }
         scope.client.clearPreview(widget.id);
       }
-      if (mounted) Navigator.pop(context, PlaylistEdit(outName, _img != null));
+      if (mounted) Navigator.pop(
+            context, PlaylistEdit(outName, _img != null, localCover: localCover));
     } catch (e) {
       if (mounted) {
         setState(() {

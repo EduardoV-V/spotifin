@@ -1,7 +1,9 @@
+import 'net_image.dart';
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
 import '../app/theme.dart';
+import '../core/cache/local_covers.dart';
 import '../core/jellyfin/models.dart';
 
 /// Capa da playlist: imagem do Jellyfin; se não houver, mosaico 2x2
@@ -23,12 +25,35 @@ class PlaylistCover extends StatelessWidget {
     final client = AppScope.of(context).client;
     final px = (size * 2).round().clamp(120, 800);
     final uri = client.imageUri(id, maxWidth: px).toString();
+    return ListenableBuilder(
+      listenable: LocalCovers.rev,
+      builder: (context, _) {
+        final local = LocalCovers.file(id);
+        if (local != null) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Image.file(local,
+                  key: ValueKey('lc${LocalCovers.rev.value}'),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _Mosaic(id: id, size: size)),
+            ),
+          );
+        }
+        return _remote(client, uri);
+      },
+    );
+  }
+
+  Widget _remote(dynamic client, String uri) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
         width: size,
         height: size,
-        child: Image.network(
+        child: NetImage(
           version == 0 ? uri : '$uri&v=$version',
           key: ValueKey('$id#$version'),
           headers: client.authHeaders,
@@ -59,7 +84,7 @@ class _Mosaic extends StatelessWidget {
                   size: size * 0.4, color: AppColors.textSecondary));
         }
         Widget cell(int i) => i < l.length
-            ? Image.network(
+            ? NetImage(
                 client
                     .imageUri(l[i].albumId ?? l[i].id,
                         maxWidth: (size).round().clamp(80, 400))

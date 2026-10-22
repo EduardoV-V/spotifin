@@ -1,3 +1,4 @@
+import '../../widgets/download_quality_picker.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -27,7 +28,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         final t = it.totalBytes;
         return '${fmtBytes(it.bytesReceived)}${t != null ? ' / ${fmtBytes(t)}' : ''}';
       case DownloadState.completed:
-        return '${it.quality == DownloadQuality.mp3 ? 'MP3 192k' : 'Original'} • ${fmtBytes(it.bytesReceived)}';
+        return '${it.quality.shortLabel} • ${fmtBytes(it.bytesReceived)}';
       case DownloadState.error:
         return it.error ?? 'Erro';
       case DownloadState.cancelled:
@@ -89,22 +90,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: Row(children: [
-                    const Text('Qualidade dos novos downloads'),
-                    const Spacer(),
-                    SegmentedButton<DownloadQuality>(
-                      showSelectedIcon: false,
-                      segments: const [
-                        ButtonSegment(
-                            value: DownloadQuality.original,
-                            label: Text('Original')),
-                        ButtonSegment(
-                            value: DownloadQuality.mp3, label: Text('MP3 192k')),
-                      ],
-                      selected: {d.quality},
-                      onSelectionChanged: (s) => d.setQuality(s.first),
-                    ),
-                  ]),
+                  child: const DownloadQualityPicker(),
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),

@@ -56,6 +56,8 @@ ThemeData buildTheme() {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: AppColors.elevated,
+      hintStyle: const TextStyle(color: Color(0x61FFFFFF), fontWeight: FontWeight.w400),
+      labelStyle: const TextStyle(color: Color(0xB3FFFFFF)),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide.none,

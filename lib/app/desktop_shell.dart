@@ -1,3 +1,4 @@
+import '../widgets/net_image.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/playlist_cover.dart';
 import '../widgets/smooth_scroll.dart';
@@ -268,7 +269,7 @@ class _LeftPanel extends StatelessWidget {
     if (fallback == Icons.queue_music) {
       return PlaylistCover(id: id, size: 48, radius: 0);
     }
-    return Image.network(
+    return NetImage(
       client.imageUri(id, maxWidth: 120).toString(),
       headers: client.authHeaders,
       fit: BoxFit.cover,

@@ -290,6 +290,15 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
     final local = localPathResolver?.call(t.id);
     _playingLocal = local != null;
+    if (local == null && _client.offlineForced) {
+      _loaded = false;
+      _playerError = 'Sem conexão: baixe a faixa para ouvir offline.';
+      try {
+        await _player.stop();
+      } catch (_) {}
+      notifyListeners();
+      return;
+    }
     final uri = local != null
         ? Uri.file(local)
         : (_useTranscoded

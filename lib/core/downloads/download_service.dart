@@ -6,12 +6,32 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../cache/image_store.dart';
 import '../jellyfin/jellyfin_client.dart';
 import '../jellyfin/models.dart';
 
 enum DownloadState { queued, downloading, completed, error, cancelled, missing }
 
-enum DownloadQuality { original, mp3 }
+/// `mp3` (índice 1) = 192k, mantido assim para não quebrar downloads antigos.
+enum DownloadQuality { original, mp3, mp3High, mp3Low }
+
+extension DownloadQualityInfo on DownloadQuality {
+  int get kbps => switch (this) {
+        DownloadQuality.original => 0,
+        DownloadQuality.mp3 => 192,
+        DownloadQuality.mp3High => 320,
+        DownloadQuality.mp3Low => 96,
+      };
+  String get label => switch (this) {
+        DownloadQuality.original => 'Original',
+        DownloadQuality.mp3High => 'Alta · MP3 320k',
+        DownloadQuality.mp3 => 'Normal · MP3 192k',
+        DownloadQuality.mp3Low => 'Baixa · MP3 96k',
+      };
+  String get shortLabel => this == DownloadQuality.original
+      ? 'Original'
+      : 'MP3 ${kbps}k';
+}
 
 class DownloadItem {
   final Track track;
@@ -140,7 +160,7 @@ class DownloadService extends ChangeNotifier {
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _quality =
-        DownloadQuality.values[(prefs.getInt(_kQuality) ?? 0).clamp(0, 1)];
+        DownloadQuality.values[(prefs.getInt(_kQuality) ?? 0).clamp(0, DownloadQuality.values.length - 1)];
     _support = _baseDir ?? await getApplicationSupportDirectory();
     final custom = prefs.getString(_kDir);
     _dir = Directory(custom ?? await _defaultDir());
@@ -266,7 +286,7 @@ class DownloadService extends ChangeNotifier {
   }
 
   String _targetPath(Track t, DownloadQuality q) {
-    final raw = q == DownloadQuality.mp3
+    final raw = q != DownloadQuality.original
         ? 'mp3'
         : (t.file.container ?? t.file.codec ?? 'audio');
     final ext = raw.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
@@ -373,7 +393,7 @@ class DownloadService extends ChangeNotifier {
       var start = (resumable && part.existsSync()) ? part.lengthSync() : 0;
       final uri = resumable
           ? _client.originalStreamUri(id)
-          : _client.transcodedStreamUri(id);
+          : _client.transcodedStreamUri(id, bitrate: it.quality.kbps * 1000);
       final resp = await _client
           .openStream(uri, rangeStart: start)
           .timeout(const Duration(seconds: 20));
@@ -426,6 +446,7 @@ class DownloadService extends ChangeNotifier {
         it.totalBytes = len;
         it.state = DownloadState.completed;
         it.completedAt = DateTime.now();
+        _cacheCovers(it.track);
       }
     } catch (e) {
       it.state = DownloadState.error;
@@ -436,6 +457,16 @@ class DownloadService extends ChangeNotifier {
       } catch (_) {}
     }
     _changed(force: true);
+  }
+
+  /// Guarda a capa em disco para a faixa baixada aparecer com capa offline.
+  void _cacheCovers(Track t) {
+    final cid = t.albumId ?? t.id;
+    for (final w in const [96, 300, 600]) {
+      ImageStore.get(_client.imageUri(cid, maxWidth: w).toString(),
+          background: true,
+          headers: _client.authHeaders);
+    }
   }
 
   String _describe(Object e) {

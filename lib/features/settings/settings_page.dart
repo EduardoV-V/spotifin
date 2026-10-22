@@ -4,8 +4,10 @@ import '../../core/artists/artist_info_service.dart';
 
 import '../../app/account_actions.dart';
 import '../../app/app_scope.dart';
+import '../../app/nav.dart';
 import '../../core/jellyfin/models.dart';
 import '../../core/storage/session_store.dart';
+import '../../widgets/download_quality_picker.dart';
 import '../downloads/downloads_page.dart';
 import '../spike/login_page.dart';
 
@@ -32,7 +34,9 @@ class _SettingsPageState extends State<SettingsPage> {
       _busy = true;
       _status = null;
     });
-    final ok = await scope.client.ping(_url.text);
+    final resolved = await scope.client.resolveServerUrl(_url.text);
+    if (mounted) _url.text = resolved;
+    final ok = await scope.client.ping(resolved);
     if (!ok) {
       if (mounted) {
         setState(() {
@@ -43,7 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     final old = scope.client.session!.serverUrl;
-    final updated = scope.client.updateServerUrl(_url.text);
+    final updated = scope.client.updateServerUrl(resolved);
     await SessionStore.replaceServerUrl(old, updated.serverUrl);
     await SessionStore.save(updated);
     await scope.player.stop();
@@ -108,13 +112,18 @@ class _SettingsPageState extends State<SettingsPage> {
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
-          child: ListView(padding: const EdgeInsets.all(16), children: [
+          child: Padding(
+            padding: EdgeInsets.only(bottom: KeyboardInset.of(context)),
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(
+                  16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom),
+              children: [
             TextField(
               controller: _url,
               keyboardType: TextInputType.url,
               decoration: const InputDecoration(
                   labelText: 'URL do Jellyfin',
-                  hintText: 'http://jellyfin.home:8096'),
+                  hintText: 'jellyfin.home:8096 (http/https é detectado)'),
             ),
             if (_status != null)
               Padding(
@@ -155,6 +164,29 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
             const SizedBox(height: 16),
+            const DownloadQualityPicker(),
+            const SizedBox(height: 8),
+            ListenableBuilder(
+              listenable: Listenable.merge([
+                AppScope.of(context).conn,
+                AppScope.of(context).outbox,
+              ]),
+              builder: (context, _) {
+                final sc = AppScope.of(context);
+                return SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Modo offline'),
+                  subtitle: Text(sc.outbox.pending > 0
+                      ? 'Só músicas baixadas. ${sc.outbox.pending} alteração(ões) aguardando envio.'
+                      : sc.conn.offline && !sc.conn.forced
+                          ? 'Sem conexão com o servidor (modo offline automático).'
+                          : 'Só músicas baixadas; alterações são enviadas depois.'),
+                  value: sc.conn.forced,
+                  onChanged: sc.conn.setForced,
+                );
+              },
+            ),
+            const SizedBox(height: 8),
             ListenableBuilder(
               listenable: AppScope.of(context).player,
               builder: (context, _) {
@@ -200,7 +232,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const _MetaKeys(),
             const SizedBox(height: 8),
-            const Text('Spotifin build ui14',
+            const Text('Spotifin build ui18',
                 style: TextStyle(fontSize: 11, color: Colors.white38)),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -233,6 +265,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: const Icon(Icons.person_add_alt),
                 label: const Text('Adicionar conta')),
           ]),
+          ),
         ),
       ),
     );

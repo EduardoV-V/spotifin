@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../cache/image_store.dart';
 import '../i18n/strings.dart';
 
 /// Dados de artista vindos de APIs públicas (não do Jellyfin):
@@ -103,19 +104,87 @@ class ArtistInfoService {
     return _pending[k] ??= _load(name, k).whenComplete(() => _pending.remove(k));
   }
 
+  final _failAt = <String, DateTime>{};
+  int _running = 0;
+  final _waiters = <Completer<void>>[];
+
+  Future<void> _acquire() async {
+    if (_running < 3) {
+      _running++;
+      return;
+    }
+    final c = Completer<void>();
+    _waiters.add(c);
+    await c.future;
+  }
+
+  void _release() {
+    if (_waiters.isNotEmpty) {
+      _waiters.removeAt(0).complete();
+    } else {
+      _running--;
+    }
+  }
+
   Future<ArtistInfo?> _load(String name, String k) async {
+    final fa = _failAt[k];
+    if (fa != null && DateTime.now().difference(fa).inMinutes < 10) return null;
     final sp = await SharedPreferences.getInstance();
+    final neg = sp.getInt('ai2n_$k');
+    if (neg != null &&
+        DateTime.now().millisecondsSinceEpoch - neg <
+            const Duration(days: 1).inMilliseconds) {
+      return _mem[k] = ArtistInfo(name: name, bio: const {});
+    }
+    await _acquire();
+    try {
+      return await _fetch(name, k, sp);
+    } finally {
+      _release();
+    }
+  }
+
+  Future<ArtistInfo?> _fetch(String name, String k, SharedPreferences sp) async {
     final raw = sp.getString('ai2_$k');
     if (raw != null) {
       try {
         final j = jsonDecode(raw) as Map<String, dynamic>;
         final at = DateTime.fromMillisecondsSinceEpoch(j['at'] as int);
-        if (DateTime.now().difference(at) < _ttl) {
-          final c = ArtistInfo.fromJson(j['info'] as Map<String, dynamic>);
-          if (c.picture != null || c.hero != null) return _mem[k] = c;
+        final c = ArtistInfo.fromJson(j['info'] as Map<String, dynamic>);
+        if (c.picture != null || c.hero != null) {
+          _mem[k] = c;
+          _warmImages(c);
+          // Dados guardados valem para sempre (modo offline); depois de
+          // _ttl renova em segundo plano, sem atrasar a tela.
+          if (DateTime.now().difference(at) >= _ttl) {
+            Future(() => _network(name, k, sp));
+          }
+          return c;
         }
       } catch (_) {}
     }
+    return _network(name, k, sp);
+  }
+
+  void _warmImages(ArtistInfo i) {
+    for (final u in [i.picture, i.hero]) {
+      if (u != null) ImageStore.get(u, background: true);
+    }
+  }
+
+  /// Fila de pré-carregamento (fotos e dados dos artistas) em segundo plano.
+  final _prefetched = <String>{};
+  void prefetch(Iterable<String> names) {
+    for (final n in names) {
+      final k = _key(primary(n));
+      if (k.isEmpty || !_prefetched.add(k)) continue;
+      get(n).then((i) {
+        if (i != null) _warmImages(i);
+      }).catchError((_) {});
+    }
+  }
+
+  Future<ArtistInfo?> _network(String name, String k, SharedPreferences sp) async {
     final r = await Future.wait([_deezer(name), _audioDb(name)]);
     final dz = r[0];
     final adb = r[1];
@@ -133,7 +202,14 @@ class ArtistInfoService {
       }
     }
     if (dz == null && adb == null && picture == null) {
+      _failAt[k] = DateTime.now();
       return null; // falha: tenta de novo depois
+    }
+    final old = _mem[k];
+    if ((old?.picture != null || old?.hero != null) &&
+        picture == null &&
+        hero == null) {
+      return old;
     }
     final info = ArtistInfo(
       name: name,
@@ -145,7 +221,10 @@ class ArtistInfoService {
       bio: bio,
     );
     try {
-      if (info.picture == null && info.hero == null) return _mem[k] = info;
+      if (info.picture == null && info.hero == null) {
+        await sp.setInt('ai2n_$k', DateTime.now().millisecondsSinceEpoch);
+        return _mem[k] = info;
+      }
       await sp.setString(
           'ai2_$k',
           jsonEncode({
@@ -153,6 +232,7 @@ class ArtistInfoService {
             'info': info.toJson(),
           }));
     } catch (_) {}
+    _warmImages(info);
     return _mem[k] = info;
   }
 

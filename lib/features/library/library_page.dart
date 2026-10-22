@@ -1,3 +1,5 @@
+import '../../widgets/net_image.dart';
+import '../../widgets/user_avatar.dart';
 import '../../widgets/download_badge.dart';
 import 'package:flutter/material.dart';
 
@@ -157,7 +159,7 @@ class _LibraryPageState extends State<LibraryPage> {
           child: SizedBox(
             width: size,
             height: size,
-            child: Image.network(
+            child: NetImage(
                 c.imageUri(e.id, maxWidth: (size * 2).round()).toString(),
                 headers: c.authHeaders,
                 fit: BoxFit.cover,
@@ -292,13 +294,7 @@ class _LibraryPageState extends State<LibraryPage> {
             InkWell(
               customBorder: const CircleBorder(),
               onTap: () => openSettings(context),
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: const Color(0xFF6A4FC4),
-                child: Text(user.isEmpty ? '?' : user[0].toUpperCase(),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, color: Colors.white)),
-              ),
+              child: const UserAvatar(radius: 18),
             ),
             const SizedBox(width: 12),
             const Expanded(

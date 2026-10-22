@@ -30,8 +30,10 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     try {
+      final base = await scope.client.resolveServerUrl(_url.text);
+      if (mounted) _url.text = base;
       final s = await scope.client.login(
-        serverUrl: _url.text,
+        serverUrl: base,
         username: _user.text,
         password: _pass.text,
         deviceId: await SessionStore.deviceId(),
@@ -64,7 +66,7 @@ class _LoginPageState extends State<LoginPage> {
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
                       labelText: 'URL do servidor',
-                      hintText: 'http://jellyfin.home:8096')),
+                      hintText: 'jellyfin.home:8096 (http/https é detectado)')),
               const SizedBox(height: 12),
               TextField(
                   controller: _user,

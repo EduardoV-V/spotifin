@@ -8,16 +8,20 @@ import 'app/app_scope.dart';
 import 'app/app_shell.dart';
 import 'app/theme.dart';
 import 'core/audio/audio_backend.dart';
+import 'core/cache/local_covers.dart';
 import 'core/audio/audio_handler.dart';
 import 'core/audio/player_service.dart';
 import 'core/downloads/download_foreground.dart';
 import 'core/downloads/download_service.dart';
 import 'core/favorites/favorites_service.dart';
+import 'core/net/connectivity_service.dart';
 import 'core/playlists/playlists_service.dart';
+import 'core/sync/outbox.dart';
 import 'core/connect/connect_service.dart';
 import 'core/sync/play_state_sync.dart';
 import 'core/sync/playback_reporter.dart';
 import 'core/jellyfin/jellyfin_client.dart';
+import 'core/jellyfin/models.dart';
 import 'core/jellyfin/library_watcher.dart';
 import 'core/storage/session_store.dart';
 import 'features/spike/login_page.dart';
@@ -39,6 +43,7 @@ Future<void> main() async {
     DownloadForeground(downloads).attach();
   }
   await downloads.init();
+  await LocalCovers.init();
   player.localPathResolver = downloads.localPath;
   if (client.session != null) await player.restore();
   if (Platform.isAndroid) {
@@ -58,14 +63,34 @@ Future<void> main() async {
   final reload = ValueNotifier<int>(0);
   final favorites = FavoritesService(client);
   if (client.session != null) await favorites.switchUser();
-  final playlists = PlaylistsService(client);
+  final conn = ConnectivityService(client);
+  final outbox = OutboxService(client, conn);
+  if (client.session != null) await outbox.switchUser();
+  final playlists = PlaylistsService(client, outbox: outbox, conn: conn);
   if (client.session != null) await playlists.switchUser();
+  outbox.onFlushed = playlists.scheduleRefresh;
+  client.offlineTracks = () {
+    final seen = <String>{};
+    return [
+      for (final t in [...downloads.completedTracks, ...favorites.tracks])
+        if (seen.add(Track.key(t.id))) t
+    ];
+  };
+  await conn.start();
   PlaybackReporter(player, client).attach();
   final sync = PlayStateSync(player, client)
     ..onNotice = (m) => messengerKey.currentState
         ?.showSnackBar(SnackBar(content: Text(m)));
   if (client.session != null) await sync.start();
   reload.addListener(sync.pull);
+  conn.addListener(() {
+    if (conn.online) {
+      outbox.flush();
+      favorites.scheduleRefresh();
+      playlists.scheduleRefresh();
+      sync.pull();
+    }
+  });
   reload.addListener(favorites.scheduleRefresh);
   reload.addListener(playlists.scheduleRefresh);
   final connect = ConnectService(client, player)
@@ -89,7 +114,9 @@ Future<void> main() async {
       sync: sync,
       connect: connect,
       reload: reload,
-      watcher: watcher));
+      watcher: watcher,
+      conn: conn,
+      outbox: outbox));
   if (Platform.isAndroid) FlutterForegroundTask.requestNotificationPermission();
 }
 
@@ -103,6 +130,8 @@ class SpotifinApp extends StatelessWidget {
   final ConnectService connect;
   final ValueNotifier<int> reload;
   final LibraryWatcher watcher;
+  final ConnectivityService conn;
+  final OutboxService outbox;
   const SpotifinApp(
       {super.key,
       required this.client,
@@ -113,7 +142,9 @@ class SpotifinApp extends StatelessWidget {
       required this.sync,
       required this.connect,
       required this.reload,
-      required this.watcher});
+      required this.watcher,
+      required this.conn,
+      required this.outbox});
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +158,8 @@ class SpotifinApp extends StatelessWidget {
       connect: connect,
       reload: reload,
       watcher: watcher,
+      conn: conn,
+      outbox: outbox,
       child: MaterialApp(
         title: 'Spotifin',
         scaffoldMessengerKey: messengerKey,

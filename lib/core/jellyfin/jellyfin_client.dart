@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show SocketException, HandshakeException;
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../cache/meta_cache.dart';
 import 'lyrics.dart';
 import 'models.dart';
 
@@ -30,6 +34,39 @@ class JellyfinClient {
       u = u.substring(0, u.length - 1);
     }
     return u;
+  }
+
+  /// Sem http:// ou https:// no endereço, descobre qual dos dois responde
+  /// (tenta https primeiro). Com esquema explícito, só normaliza.
+  Future<String> resolveServerUrl(String input) async {
+    final t = input.trim();
+    if (t.startsWith('http://') || t.startsWith('https://')) {
+      return normalizeUrl(t);
+    }
+    final bare = normalizeUrl(t).substring('http://'.length);
+    for (final scheme in const ['https', 'http']) {
+      if (await _pingBase('$scheme://$bare', const Duration(seconds: 4))) {
+        return '$scheme://$bare';
+      }
+    }
+    return 'http://$bare';
+  }
+
+  Future<bool> _pingBase(String base, Duration t) async {
+    try {
+      final res =
+          await _http.get(Uri.parse('$base/System/Info/Public')).timeout(t);
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Servidor da sessão atual responde? (usado para detectar offline)
+  Future<bool> pingSession() async {
+    final s = session;
+    if (s == null) return false;
+    return _pingBase(s.serverUrl, const Duration(seconds: 3));
   }
 
   Future<bool> ping(String url) async {
@@ -158,7 +195,32 @@ class JellyfinClient {
     return TrackPage(items, (json['TotalRecordCount'] as int?) ?? items.length);
   }
 
+  /// Chamado quando uma requisição falha por rede (para marcar modo offline).
+  void Function()? onNetworkError;
+
+  /// Faixas disponíveis offline (baixadas + favoritas em cache), para a busca.
+  List<Track> Function()? offlineTracks;
+
+  /// Playlists com alterações ainda na fila de envio (não sobrescrever com o servidor).
+  bool Function(String playlistId)? playlistPending;
+
+  static bool isNetworkError(Object e) =>
+      e is SocketException ||
+      e is TimeoutException ||
+      e is HandshakeException ||
+      e is http.ClientException;
+
+  Future<T> _guard<T>(Future<T> Function() f) async {
+    try {
+      return await f();
+    } catch (e) {
+      if (isNetworkError(e)) onNetworkError?.call();
+      rethrow;
+    }
+  }
+
   Future<List<dynamic>> _items(String path, Map<String, String> query) async {
+    if (offlineForced) throw TimeoutException('modo offline');
     final s = _requireSession();
     final uri = Uri.parse('${s.serverUrl}$path').replace(queryParameters: {
       'userId': s.userId,
@@ -166,7 +228,8 @@ class JellyfinClient {
       'fields': 'MediaSources',
       ...query,
     });
-    final res = await _http.get(uri, headers: authHeaders);
+    final res = await _guard(
+        () => _http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 12)));
     if (res.statusCode != 200) {
       throw JellyfinException('Falha na busca (HTTP ${res.statusCode}).');
     }
@@ -193,26 +256,48 @@ class JellyfinClient {
   Future<List<LibItem>> libraryAlbums({bool force = false}) async {
     _libCheck();
     if (!force && _albumsCache != null) return _albumsCache!;
-    final l = await _items('/Items', {
-      'includeItemTypes': 'MusicAlbum',
-      'sortBy': 'SortName',
-      'fields': 'AlbumArtist',
-    });
-    return _albumsCache = [
-      for (final e in l.cast<Map<String, dynamic>>())
-        LibItem(e['Id'] as String, (e['Name'] as String?) ?? '?',
-            (e['AlbumArtist'] as String?) ?? ''),
-    ];
+    final ck = 'libalbums_${session?.userId}';
+    try {
+      final l = await _items('/Items', {
+        'includeItemTypes': 'MusicAlbum',
+        'sortBy': 'SortName',
+        'fields': 'AlbumArtist',
+      });
+      final out = [
+        for (final e in l.cast<Map<String, dynamic>>())
+          LibItem(e['Id'] as String, (e['Name'] as String?) ?? '?',
+              (e['AlbumArtist'] as String?) ?? ''),
+      ];
+      MetaCache.put(ck, [for (final i in out) [i.id, i.name, i.sub]]);
+      return _albumsCache = out;
+    } catch (_) {
+      final c = await MetaCache.get(ck, const Duration(days: 3650));
+      if (c == null) rethrow;
+      return _albumsCache = [
+        for (final e in (c as List)) LibItem(e[0] as String, e[1] as String, e[2] as String)
+      ];
+    }
   }
 
   Future<List<LibItem>> libraryArtists({bool force = false}) async {
     _libCheck();
     if (!force && _artistsCache != null) return _artistsCache!;
-    final l = await _items('/Artists', {'sortBy': 'SortName', 'fields': ''});
-    return _artistsCache = [
-      for (final e in l.cast<Map<String, dynamic>>())
-        LibItem(e['Id'] as String, (e['Name'] as String?) ?? '?', ''),
-    ];
+    final ck = 'libartists_${session?.userId}';
+    try {
+      final l = await _items('/Artists', {'sortBy': 'SortName', 'fields': ''});
+      final out = [
+        for (final e in l.cast<Map<String, dynamic>>())
+          LibItem(e['Id'] as String, (e['Name'] as String?) ?? '?', ''),
+      ];
+      MetaCache.put(ck, [for (final i in out) [i.id, i.name, i.sub]]);
+      return _artistsCache = out;
+    } catch (_) {
+      final c = await MetaCache.get(ck, const Duration(days: 3650));
+      if (c == null) rethrow;
+      return _artistsCache = [
+        for (final e in (c as List)) LibItem(e[0] as String, e[1] as String, e[2] as String)
+      ];
+    }
   }
 
   HomeFeed? _feed;
@@ -227,21 +312,56 @@ class JellyfinClient {
         DateTime.now().difference(f.at).inMinutes < 5) {
       return f;
     }
-    final r = await Future.wait([
-      getTracks(
-          limit: 60,
-          sortBy: 'DatePlayed',
-          sortOrder: 'Descending',
-          filters: 'IsPlayed'),
-      getTracks(limit: 30, sortBy: 'DateCreated', sortOrder: 'Descending'),
-      getTracks(
-          limit: 60,
-          sortBy: 'PlayCount',
-          sortOrder: 'Descending',
-          filters: 'IsPlayed'),
-    ]);
-    _feedUser = session?.userId;
-    return _feed = HomeFeed(r[0].items, r[1].items, r[2].items);
+    final fk = 'feed_${session?.userId}';
+    HomeFeed? parse(dynamic c) {
+      try {
+        List<Track> l(String k) => [
+              for (final e in (c[k] as List))
+                Track.fromStored(e as Map<String, dynamic>)
+            ];
+        return HomeFeed(l('r'), l('a'), l('t'));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    if (!force && f == null) {
+      final c = await MetaCache.get(fk, const Duration(minutes: 10));
+      final h = c == null ? null : parse(c);
+      if (h != null) {
+        _feedUser = session?.userId;
+        return _feed = h;
+      }
+    }
+    try {
+      final r = await Future.wait([
+        getTracks(
+            limit: 60,
+            sortBy: 'DatePlayed',
+            sortOrder: 'Descending',
+            filters: 'IsPlayed'),
+        getTracks(limit: 30, sortBy: 'DateCreated', sortOrder: 'Descending'),
+        getTracks(
+            limit: 60,
+            sortBy: 'PlayCount',
+            sortOrder: 'Descending',
+            filters: 'IsPlayed'),
+      ]);
+      _feedUser = session?.userId;
+      MetaCache.put(fk, {
+        'r': r[0].items.map((t) => t.toJson()).toList(),
+        'a': r[1].items.map((t) => t.toJson()).toList(),
+        't': r[2].items.map((t) => t.toJson()).toList(),
+      });
+      return _feed = HomeFeed(r[0].items, r[1].items, r[2].items);
+    } catch (_) {
+      // Offline: usa o último que foi guardado, de qualquer idade.
+      final c = await MetaCache.get(fk, const Duration(days: 3650));
+      final h = c == null ? null : parse(c);
+      if (h == null) rethrow;
+      _feedUser = session?.userId;
+      return _feed = h;
+    }
   }
 
   Future<List<Track>> recentlyPlayed({int limit = 40}) async {
@@ -253,7 +373,43 @@ class JellyfinClient {
     return p.items;
   }
 
+  String _fold(String s) {
+    const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
+    const to = 'aaaaaeeeeiiiiooooouuuucn';
+    var r = s.toLowerCase();
+    for (var i = 0; i < from.length; i++) {
+      r = r.replaceAll(from[i], to[i]);
+    }
+    return r;
+  }
+
+  List<Track> _searchOffline(String term, int limit) {
+    final q = _fold(term.trim());
+    final all = offlineTracks?.call() ?? const <Track>[];
+    if (q.isEmpty) return all.take(limit).toList();
+    return all
+        .where((t) =>
+            _fold(t.title).contains(q) ||
+            _fold(t.artist).contains(q) ||
+            _fold(t.album).contains(q))
+        .take(limit)
+        .toList();
+  }
+
   Future<List<Track>> searchTracks(String term, {int limit = 100}) async {
+    try {
+      return await _searchOnline(term, limit);
+    } catch (e) {
+      if (isNetworkError(e) || offlineForced) return _searchOffline(term, limit);
+      rethrow;
+    }
+  }
+
+  /// True quando o usuário ligou o modo offline manual.
+  bool offlineForced = false;
+
+  Future<List<Track>> _searchOnline(String term, int limit) async {
+    if (offlineForced) throw TimeoutException('offline');
     final found = await Future.wait([
       _items('/Items', {
         'includeItemTypes': 'Audio',
@@ -323,6 +479,7 @@ class JellyfinClient {
 
   Future<http.Response> _send(String method, String path,
       {Map<String, String>? query, Object? body}) async {
+    if (offlineForced) throw TimeoutException('modo offline');
     final s = _requireSession();
     final uri = Uri.parse('${s.serverUrl}$path')
         .replace(queryParameters: {'userId': s.userId, ...?query});
@@ -331,8 +488,8 @@ class JellyfinClient {
       req.headers['Content-Type'] = 'application/json';
       req.body = jsonEncode(body);
     }
-    final res = await http.Response.fromStream(
-        await _http.send(req).timeout(const Duration(seconds: 15)));
+    final res = await _guard(() async => http.Response.fromStream(
+        await _http.send(req).timeout(const Duration(seconds: 15))));
     if (res.statusCode < 200 || res.statusCode >= 300) {
       var detail = utf8.decode(res.bodyBytes, allowMalformed: true).trim();
       if (detail.length > 200) detail = detail.substring(0, 200);
@@ -355,9 +512,58 @@ class JellyfinClient {
   }
 
   Future<List<Track>> playlistTracks(String id) async {
+    final ck = 'pltracks_${session?.userId}_$id';
+    Future<List<Track>?> fromCache() async {
+      final c = await MetaCache.get(ck, const Duration(days: 3650));
+      if (c == null) return null;
+      try {
+        return [
+          for (final e in (c as List)) Track.fromStored(e as Map<String, dynamic>)
+        ];
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Alterações pendentes: o cache local é a verdade até o envio terminar.
+    if (offlineForced || (playlistPending?.call(id) ?? false)) {
+      final c = await fromCache();
+      if (c != null) return c;
+    }
+    try {
+      final items = await _items('/Playlists/$id/Items', {});
+      final out =
+          items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
+      MetaCache.put(ck, out.map((t) => t.toJson()).toList());
+      return out;
+    } catch (e) {
+      final c = await fromCache();
+      if (c != null) return c;
+      rethrow;
+    }
+  }
+
+  /// Faixas da playlist direto do servidor (sem cache), com os IDs de entrada.
+  Future<List<Track>> playlistTracksRemote(String id) async {
     final items = await _items('/Playlists/$id/Items', {});
     return items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
   }
+
+  Future<List<Track>?> cachedPlaylistTracks(String id) async {
+    final c = await MetaCache.get(
+        'pltracks_${session?.userId}_$id', const Duration(days: 3650));
+    if (c == null) return null;
+    try {
+      return [
+        for (final e in (c as List)) Track.fromStored(e as Map<String, dynamic>)
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> putPlaylistTracks(String id, List<Track> l) => MetaCache.put(
+      'pltracks_${session?.userId}_$id', l.map((t) => t.toJson()).toList());
 
   Future<String> createPlaylist(String name, List<String> ids) async {
     final s = _requireSession();
@@ -396,6 +602,28 @@ class JellyfinClient {
     return items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  final _avatar = <String, Uint8List?>{};
+
+  /// Foto de perfil do usuário atual (null se não houver).
+  Future<Uint8List?> userAvatar() async {
+    final s = session;
+    if (s == null) return null;
+    if (_avatar.containsKey(s.userId)) return _avatar[s.userId];
+    try {
+      final res = await _http.get(
+          Uri.parse('${s.serverUrl}/Users/${s.userId}/Images/Primary')
+              .replace(queryParameters: {'maxWidth': '160'}),
+          headers: authHeaders);
+      final ct = res.headers['content-type'] ?? '';
+      if (res.statusCode == 200 && ct.startsWith('image/') && res.bodyBytes.isNotEmpty) {
+        return _avatar[s.userId] = res.bodyBytes;
+      }
+      return _avatar[s.userId] = null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   final _lyricsCache = <String, List<LyricLine>>{};
 
   /// Letra da faixa (vazia se o servidor não tiver). Start em ticks de 100ns.
@@ -425,6 +653,13 @@ class JellyfinClient {
   /// Foto do artista no próprio Jellyfin (se o servidor tiver); cache.
   Future<String?> artistImage(String name) async {
     if (_artistImg.containsKey(name)) return _artistImg[name];
+    final uid = session?.userId ?? '';
+    final ck = 'jfart_${uid}_${name.toLowerCase()}';
+    final hit = await MetaCache.get(ck, const Duration(days: 7));
+    if (hit != null) {
+      final v = hit as String;
+      return _artistImg[name] = v.isEmpty ? null : v;
+    }
     try {
       final s = _requireSession();
       final res = await _http.get(
@@ -435,13 +670,15 @@ class JellyfinClient {
         final j = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
         final tags = (j['ImageTags'] as Map?) ?? const {};
         if (tags.containsKey('Primary')) {
-          return _artistImg[name] =
-              imageUri(j['Id'] as String, maxWidth: 600).toString();
+          final u = imageUri(j['Id'] as String, maxWidth: 600).toString();
+          MetaCache.put(ck, u);
+          return _artistImg[name] = u;
         }
       }
     } catch (_) {
       return null;
     }
+    MetaCache.put(ck, '');
     return _artistImg[name] = null;
   }
 

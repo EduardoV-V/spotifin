@@ -1,3 +1,4 @@
+import '../../widgets/net_image.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -174,7 +175,7 @@ class _ArtistPageState extends State<ArtistPage> {
                     width: 52,
                     height: 52,
                     child: _info?.picture != null
-                        ? Image.network(_info!.picture!, fit: BoxFit.cover)
+                        ? NetImage(_info!.picture!, fit: BoxFit.cover)
                         : Container(color: AppColors.elevated))),
             const Positioned(
                 right: 0,
@@ -269,13 +270,13 @@ class _ArtistPageState extends State<ArtistPage> {
               final t = ((bc.maxHeight - 56) / (h - 56)).clamp(0.0, 1.0);
               return Stack(fit: StackFit.expand, children: [
                 if (hero != null)
-                  Image.network(hero,
+                  NetImage(hero,
                       fit: BoxFit.cover,
                       alignment: const Alignment(0, -0.5),
                       errorBuilder: (_, __, ___) =>
                           Container(color: const Color(0xFF3A3A3A)))
                 else if (_jf != null)
-                  Image.network(_jf!,
+                  NetImage(_jf!,
                       headers: _scope.client.authHeaders,
                       fit: BoxFit.cover,
                       alignment: const Alignment(0, -0.5),
