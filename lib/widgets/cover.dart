@@ -5,6 +5,24 @@ import '../app/app_scope.dart';
 import '../app/theme.dart';
 import '../core/jellyfin/models.dart';
 
+/// Tamanhos padronizados (também usados ao baixar capas) para o cache ser
+/// reaproveitado entre telas e funcionar offline.
+const kCoverBuckets = [96, 300, 600];
+
+int coverBucket(double? size) {
+  final px = (size ?? 600) * 1.5;
+  for (final b in kCoverBuckets) {
+    if (px <= b) return b;
+  }
+  return kCoverBuckets.last;
+}
+
+/// Outros tamanhos, do mais próximo (maiores primeiro) ao mais distante.
+List<int> coverFallbacks(int b) => [
+      ...kCoverBuckets.where((x) => x > b),
+      ...kCoverBuckets.where((x) => x < b).toList().reversed,
+    ];
+
 class Cover extends StatelessWidget {
   final Track track;
   final double? size;
@@ -14,9 +32,14 @@ class Cover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final client = AppScope.of(context).client;
-    final px = ((size ?? 400) * 2).round().clamp(120, 800);
+    final px = coverBucket(size);
+    final cid = track.albumId ?? track.id;
     final img = NetImage(
-      client.imageUri(track.albumId ?? track.id, maxWidth: px).toString(),
+      client.imageUri(cid, maxWidth: px).toString(),
+      fallbacks: [
+        for (final b in coverFallbacks(px))
+          client.imageUri(cid, maxWidth: b).toString()
+      ],
       headers: client.authHeaders,
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => Container(

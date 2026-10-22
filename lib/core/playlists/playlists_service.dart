@@ -158,8 +158,44 @@ class PlaylistsService extends ChangeNotifier {
         },
       );
 
+  /// Alguns servidores Jellyfin apagam todas as cópias de uma faixa repetida;
+  /// aqui as cópias que sobraram são recolocadas nas posições originais.
+  Future<void> _removeKeepingDuplicates(String pid, Track t) async {
+    List<Track>? before;
+    try {
+      before = await _client.playlistTracksRemote(pid);
+    } catch (_) {}
+    var id = t.playlistItemId;
+    id ??= before
+        ?.where((x) => Track.key(x.id) == Track.key(t.id))
+        .firstOrNull
+        ?.playlistItemId;
+    if (id == null) return;
+    await _client.removeFromPlaylist(pid, [id]);
+    if (before == null) return;
+    final idx = before.indexWhere((x) => x.playlistItemId == id);
+    if (idx < 0) return;
+    final key = Track.key(before[idx].id);
+    final rest = [...before]..removeAt(idx);
+    final pos = <int>[
+      for (var i = 0; i < rest.length; i++)
+        if (Track.key(rest[i].id) == key) i
+    ];
+    if (pos.isEmpty) return;
+    final after = await _client.playlistTracksRemote(pid);
+    if (after.any((x) => Track.key(x.id) == key)) return;
+    await _client.addToPlaylist(pid, List.filled(pos.length, before[idx].id));
+    final now = await _client.playlistTracksRemote(pid);
+    if (now.length < pos.length) return;
+    final fresh = now.sublist(now.length - pos.length);
+    for (var i = 0; i < pos.length; i++) {
+      final e = fresh[i].playlistItemId;
+      if (e != null) await _client.movePlaylistItem(pid, e, pos[i]);
+    }
+  }
+
   Future<String?> removeEntry(String playlistId, Track t) => _run(
-        () => _client.removeFromPlaylist(playlistId, [t.playlistItemId!]),
+        () => _removeKeepingDuplicates(playlistId, t),
         'pl_remove',
         {'pid': playlistId, 'itemId': t.playlistItemId, 'trackId': t.id},
         () async {

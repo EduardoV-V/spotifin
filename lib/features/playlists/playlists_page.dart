@@ -252,7 +252,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
     });
     if (r.localCover) {
       _toast(
-          'Seu usuário no Jellyfin não pode enviar imagens (HTTP 403). A capa foi salva só neste aparelho.');
+          'Seu usuário não pode enviar imagens ao Jellyfin (HTTP 403). Capa salva só neste aparelho; para enviar ao servidor, crie uma chave de API no Painel do Jellyfin e coloque em Configurações.');
     }
   }
 

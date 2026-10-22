@@ -29,6 +29,25 @@ class ImageStore {
     return (h & 0x7fffffffffffffff).toRadixString(16);
   }
 
+  static Future<void> init() async {
+    try {
+      await _root();
+    } catch (_) {}
+  }
+
+  /// Arquivo já em disco/memória, sem esperar nada (null se não houver).
+  static File? peek(String url) {
+    final m = _mem[url];
+    if (m != null) return m;
+    final d = _dir;
+    if (d == null) return null;
+    try {
+      final f = File('${d.path}${Platform.pathSeparator}${_key(url)}.img');
+      if (f.existsSync() && f.lengthSync() > 0) return _mem[url] = f;
+    } catch (_) {}
+    return null;
+  }
+
   static Future<Directory> _root() async {
     final d = _dir;
     if (d != null) return d;

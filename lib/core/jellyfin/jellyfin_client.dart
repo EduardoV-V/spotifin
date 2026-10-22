@@ -4,6 +4,7 @@ import 'dart:io' show SocketException, HandshakeException;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../cache/meta_cache.dart';
 import 'lyrics.dart';
@@ -720,16 +721,35 @@ class JellyfinClient {
     await _send('POST', '/Items/$id', body: j);
   }
 
+  static const apiKeyPref = 'jellyfin_api_key';
+
   Future<void> uploadPlaylistImage(
       String id, List<int> bytes, String mime) async {
     final s = _requireSession();
     final uri = Uri.parse('${s.serverUrl}/Items/$id/Images/Primary');
-    final req = http.Request('POST', uri)
-      ..headers.addAll(authHeaders)
-      ..headers['Content-Type'] = mime
-      ..body = base64Encode(bytes);
-    final res = await http.Response.fromStream(
-        await _http.send(req).timeout(const Duration(seconds: 60)));
+    Future<http.Response> send(Map<String, String> h) async {
+      final req = http.Request('POST', uri)
+        ..headers.addAll(h)
+        ..headers['Content-Type'] = mime
+        ..body = base64Encode(bytes);
+      return http.Response.fromStream(
+          await _http.send(req).timeout(const Duration(seconds: 60)));
+    }
+
+    var res = await send(authHeaders);
+    if (res.statusCode == 403) {
+      // Só administradores podem enviar imagens; uma chave de API do
+      // Jellyfin (Painel > Chaves de API) tem essa permissão.
+      String? key;
+      try {
+        key = (await SharedPreferences.getInstance())
+            .getString(apiKeyPref)
+            ?.trim();
+      } catch (_) {}
+      if (key != null && key.isNotEmpty) {
+        res = await send({'Authorization': _authHeader(s.deviceId, key)});
+      }
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw JellyfinException('Upload da imagem falhou (HTTP ${res.statusCode}).');
     }

@@ -1,3 +1,4 @@
+import 'cover.dart';
 import 'net_image.dart';
 import 'package:flutter/material.dart';
 
@@ -23,7 +24,7 @@ class PlaylistCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final client = AppScope.of(context).client;
-    final px = (size * 2).round().clamp(120, 800);
+    final px = coverBucket(size);
     final uri = client.imageUri(id, maxWidth: px).toString();
     return ListenableBuilder(
       listenable: LocalCovers.rev,
@@ -42,12 +43,15 @@ class PlaylistCover extends StatelessWidget {
             ),
           );
         }
-        return _remote(client, uri);
+        return _remote(client, uri, [
+          for (final b in coverFallbacks(px))
+            client.imageUri(id, maxWidth: b).toString()
+        ]);
       },
     );
   }
 
-  Widget _remote(dynamic client, String uri) {
+  Widget _remote(dynamic client, String uri, List<String> fallbacks) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
@@ -55,6 +59,7 @@ class PlaylistCover extends StatelessWidget {
         height: size,
         child: NetImage(
           version == 0 ? uri : '$uri&v=$version',
+          fallbacks: version == 0 ? fallbacks : const [],
           key: ValueKey('$id#$version'),
           headers: client.authHeaders,
           fit: BoxFit.cover,

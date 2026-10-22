@@ -1,3 +1,4 @@
+import 'core/cache/image_store.dart';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
@@ -44,6 +45,7 @@ Future<void> main() async {
   }
   await downloads.init();
   await LocalCovers.init();
+  await ImageStore.init();
   player.localPathResolver = downloads.localPath;
   if (client.session != null) await player.restore();
   if (Platform.isAndroid) {

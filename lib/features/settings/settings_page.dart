@@ -5,6 +5,7 @@ import '../../core/artists/artist_info_service.dart';
 import '../../app/account_actions.dart';
 import '../../app/app_scope.dart';
 import '../../app/nav.dart';
+import '../../core/jellyfin/jellyfin_client.dart';
 import '../../core/jellyfin/models.dart';
 import '../../core/storage/session_store.dart';
 import '../../widgets/download_quality_picker.dart';
@@ -107,16 +108,20 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final kb = MediaQuery.viewInsetsOf(context).bottom > KeyboardInset.of(context)
+        ? MediaQuery.viewInsetsOf(context).bottom
+        : KeyboardInset.of(context);
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(title: const Text('Configurações')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
           child: Padding(
-            padding: EdgeInsets.only(bottom: KeyboardInset.of(context)),
+            padding: EdgeInsets.zero,
             child: ListView(
               padding: EdgeInsets.fromLTRB(
-                  16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom),
+                  16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom + kb),
               children: [
             TextField(
               controller: _url,
@@ -283,6 +288,7 @@ class _MetaKeysState extends State<_MetaKeys> {
     ArtistInfoService.audioDbPref: TextEditingController(),
     LastFmService.prefKey: TextEditingController(),
     LastFmService.lbPref: TextEditingController(),
+    JellyfinClient.apiKeyPref: TextEditingController(),
   };
 
   @override
@@ -340,6 +346,8 @@ class _MetaKeysState extends State<_MetaKeys> {
             'Fotos e reproduções globais vêm de serviços externos. Sem chaves, fica só o que o Deezer/ListenBrainz entregam.',
             style: TextStyle(fontSize: 12, color: Colors.white54)),
         const SizedBox(height: 12),
+        _f(JellyfinClient.apiKeyPref, 'Chave de API do Jellyfin',
+            'Só para trocar a foto de playlists se seu usuário não for administrador (Painel > Chaves de API).'),
         _f(ArtistInfoService.audioDbPref, 'Chave do TheAudioDB',
             'Vazio usa a chave pública de teste (2).'),
         _f(LastFmService.prefKey, 'Chave da API do Last.fm',

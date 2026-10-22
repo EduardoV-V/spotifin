@@ -50,13 +50,15 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: widget.canCancel ? AppBar() : null,
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: ListView(
             shrinkWrap: true,
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.fromLTRB(
+                24, 24, 24, 24 + MediaQuery.viewInsetsOf(context).bottom),
             children: [
               Text(widget.canCancel ? 'Adicionar conta' : 'Conectar ao Jellyfin',
                   style: Theme.of(context).textTheme.headlineSmall),
