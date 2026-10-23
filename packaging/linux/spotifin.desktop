@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Spotifin
+Comment=Spotify-style music player for your Jellyfin library
+Exec=spotifin
+Icon=spotifin
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+StartupWMClass=com.evmartins.spotifin

@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../jellyfin/models.dart';
 
 class SessionStore {
-  static const _s = FlutterSecureStorage();
+  static const _s = _Secure();
 
   static Future<String> deviceId() async {
     var id = await _s.read(key: 'device_id');
@@ -104,5 +106,53 @@ class SessionStore {
     }
     await setActive(list.first.userId);
     return list.first;
+  }
+}
+
+/// Armazenamento seguro com plano B: no Linux sem chaveiro (WSL, sem
+/// gnome-keyring) o flutter_secure_storage trava ou falha; nesse caso usa
+/// SharedPreferences para o app abrir normalmente.
+class _Secure {
+  const _Secure();
+  static const _s = FlutterSecureStorage();
+  static bool _broken = false;
+  static const _t = Duration(seconds: 3);
+
+  Future<String?> read({required String key}) async {
+    if (!_broken) {
+      try {
+        return await _s.read(key: key).timeout(_t);
+      } catch (e) {
+        debugPrint('secure storage indisponível, usando arquivo local: $e');
+        _broken = true;
+      }
+    }
+    return (await SharedPreferences.getInstance()).getString('sec_$key');
+  }
+
+  Future<void> write({required String key, required String? value}) async {
+    if (!_broken) {
+      try {
+        await _s.write(key: key, value: value).timeout(_t);
+        return;
+      } catch (e) {
+        debugPrint('secure storage indisponível, usando arquivo local: $e');
+        _broken = true;
+      }
+    }
+    final sp = await SharedPreferences.getInstance();
+    value == null ? await sp.remove('sec_$key') : await sp.setString('sec_$key', value);
+  }
+
+  Future<void> delete({required String key}) async {
+    if (!_broken) {
+      try {
+        await _s.delete(key: key).timeout(_t);
+        return;
+      } catch (_) {
+        _broken = true;
+      }
+    }
+    await (await SharedPreferences.getInstance()).remove('sec_$key');
   }
 }

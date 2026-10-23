@@ -25,7 +25,7 @@ import 'core/jellyfin/jellyfin_client.dart';
 import 'core/jellyfin/models.dart';
 import 'core/jellyfin/library_watcher.dart';
 import 'core/storage/session_store.dart';
-import 'features/spike/login_page.dart';
+import 'features/auth/login_page.dart';
 
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
 

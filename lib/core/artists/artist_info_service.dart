@@ -56,8 +56,8 @@ class ArtistInfoService {
   ArtistInfoService._();
   static final instance = ArtistInfoService._();
 
-  /// Chave de teste pública do TheAudioDB; troque por uma própria se precisar.
-  static const audioDbDefault = '2'; // chave pública de teste
+  /// Chave pública gratuita do TheAudioDB; pode ser trocada nas configurações.
+  static const audioDbDefault = '2';
   static const audioDbPref = 'meta_audiodb';
 
   Future<String> audioDbKey() async {

@@ -5,12 +5,13 @@ import '../../core/artists/artist_info_service.dart';
 import '../../app/account_actions.dart';
 import '../../app/app_scope.dart';
 import '../../app/nav.dart';
+import '../../app/version.dart';
 import '../../core/jellyfin/jellyfin_client.dart';
 import '../../core/jellyfin/models.dart';
 import '../../core/storage/session_store.dart';
 import '../../widgets/download_quality_picker.dart';
 import '../downloads/downloads_page.dart';
-import '../spike/login_page.dart';
+import '../auth/login_page.dart';
 
 void openSettings(BuildContext context) {
   Navigator.of(context)
@@ -237,7 +238,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const _MetaKeys(),
             const SizedBox(height: 8),
-            const Text('Spotifin build ui18',
+            const Text('Spotifin $appVersion',
                 style: TextStyle(fontSize: 11, color: Colors.white38)),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -349,7 +350,7 @@ class _MetaKeysState extends State<_MetaKeys> {
         _f(JellyfinClient.apiKeyPref, 'Chave de API do Jellyfin',
             'Só para trocar a foto de playlists se seu usuário não for administrador (Painel > Chaves de API).'),
         _f(ArtistInfoService.audioDbPref, 'Chave do TheAudioDB',
-            'Vazio usa a chave pública de teste (2).'),
+            'Vazio usa a chave pública gratuita do serviço.'),
         _f(LastFmService.prefKey, 'Chave da API do Last.fm',
             'Reproduções globais por música (recomendado).'),
         _f(LastFmService.lbPref, 'Token do ListenBrainz', 'Opcional.'),

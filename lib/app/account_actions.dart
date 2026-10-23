@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/jellyfin/models.dart';
 import '../core/storage/session_store.dart';
-import '../features/spike/login_page.dart';
+import '../features/auth/login_page.dart';
 import 'app_scope.dart';
 import 'app_shell.dart';
 
