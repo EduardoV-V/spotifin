@@ -56,47 +56,55 @@ jobs:
           name: windows-x64
           path: dist/*
 
-  linux:
-    needs: meta
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: X64
-            runner: ubuntu-22.04
-            flutter_arch: x64
-            deb_arch: amd64
-            bundle: build/linux/x64/release/bundle
-          - label: ARM64
-            runner: ubuntu-22.04-arm
-            flutter_arch: arm64
-            deb_arch: arm64
-            bundle: build/linux/arm64/release/bundle
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: System dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
-            libmpv-dev mpv libsecret-1-dev libjsoncpp-dev dpkg-dev
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          architecture: ${{ matrix.flutter_arch }}
-          cache: true
-      - run: flutter pub get
-      - run: flutter build linux --release
-      - name: Package
-        run: |
-          V='${{ needs.meta.outputs.version }}'
-          mkdir -p dist
-          tar -C "${{ matrix.bundle }}" -czf "dist/Spotifin_Linux${{ matrix.label }}_v${V}.tar.gz" .
-          packaging/linux/build_deb.sh "$V" "${{ matrix.deb_arch }}" "${{ matrix.bundle }}" dist "${{ matrix.label }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-${{ matrix.flutter_arch }}
-          path: dist/*
+  # linux:
+  #   needs: meta
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #         - label: X64
+  #           runner: ubuntu-22.04
+  #           flutter_arch: x64
+  #           deb_arch: amd64
+  #           bundle: build/linux/x64/release/bundle
+  #         - label: ARM64
+  #           runner: ubuntu-22.04-arm
+  #           flutter_arch: arm64
+  #           deb_arch: arm64
+  #           bundle: build/linux/arm64/release/bundle
+  #   runs-on: ${{ matrix.runner }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: System dependencies
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
+  #           libmpv-dev mpv libsecret-1-dev libjsoncpp-dev dpkg-dev
+  #     - uses: subosito/flutter-action@v2
+  #       if: matrix.flutter_arch == 'x64'
+  #       with:
+  #         channel: stable
+  #         cache: true
+  #     # A action não encontra o SDK para ARM64; nele o Flutter vem do git.
+  #     - name: Flutter SDK (ARM64)
+  #       if: matrix.flutter_arch == 'arm64'
+  #       run: |
+  #         git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$HOME/flutter"
+  #         echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+  #         "$HOME/flutter/bin/flutter" --version
+  #         "$HOME/flutter/bin/flutter" precache --linux
+  #     - run: flutter pub get
+  #     - run: flutter build linux --release
+  #     - name: Package
+  #       run: |
+  #         V='${{ needs.meta.outputs.version }}'
+  #         mkdir -p dist
+  #         tar -C "${{ matrix.bundle }}" -czf "dist/Spotifin_Linux${{ matrix.label }}_v${V}.tar.gz" .
+  #         packaging/linux/build_deb.sh "$V" "${{ matrix.deb_arch }}" "${{ matrix.bundle }}" dist "${{ matrix.label }}"
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: linux-${{ matrix.flutter_arch }}
+  #         path: dist/*
 
   android:
     needs: meta
@@ -143,7 +151,8 @@ jobs:
           path: dist/*
 
   release:
-    needs: [meta, windows, linux, android]
+    #needs: [meta,windows,linux,android]
+    needs: [meta, windows, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

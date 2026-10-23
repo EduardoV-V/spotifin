@@ -44,7 +44,9 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_options(${TARGET} PRIVATE -Wall -Werror)
   # json.hpp do flutter_secure_storage_linux falha com clang novo.
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(${TARGET} PRIVATE -Wno-deprecated-literal-operator)
+    # clang antigo não conhece a opção abaixo; sem isto o -Werror falha.
+    target_compile_options(${TARGET} PRIVATE -Wno-unknown-warning-option
+                                             -Wno-deprecated-literal-operator)
   endif()
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
