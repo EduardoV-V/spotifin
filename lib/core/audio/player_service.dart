@@ -67,6 +67,7 @@ class PlayerService extends ChangeNotifier {
       debugPrint('player: $e');
       if (!_busyLoading) unawaited(_recover());
     });
+    _player.currentIndexStream.listen(_onIndex);
     Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (_mirror != null) _posCtl.add(_mirror!.position);
     });
@@ -107,6 +108,11 @@ class PlayerService extends ChangeNotifier {
   double _volume = 1.0;
   double _volumeBeforeMute = 1.0;
   bool _loaded = false;
+  // Pré-carregamento da próxima faixa (gapless): [atual] + [próxima].
+  ConcatenatingAudioSource? _concat;
+  int _nextPos = -1;
+  String? _nextTrackId;
+  Future<void> _nextOp = Future.value();
   bool _completionHandled = false;
   Duration _pendingStart = Duration.zero;
   int _loadId = 0;
@@ -330,6 +336,9 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
     final local = localPathResolver?.call(t.id);
     _playingLocal = local != null;
+    _concat = null;
+    _nextPos = -1;
+    _nextTrackId = null;
     if (local == null && _client.offlineForced) {
       _loaded = false;
       _playerError = 'Sem conexão: baixe a faixa para ouvir offline.';
@@ -345,11 +354,17 @@ class PlayerService extends ChangeNotifier {
             ? _client.transcodedStreamUri(t.id, bitrate: _kbps * 1000)
             : _client.originalStreamUri(t.id));
     try {
-      await _player.setAudioSource(
-        AudioSource.uri(uri, headers: local == null ? _client.authHeaders : null),
-        initialPosition: start,
+      final c = ConcatenatingAudioSource(
+        useLazyPreparation: false,
+        children: [
+          AudioSource.uri(uri,
+              headers: local == null ? _client.authHeaders : null)
+        ],
       );
+      await _player.setAudioSource(c,
+          initialPosition: start, initialIndex: 0);
       if (id != _loadId) return;
+      _concat = c;
       if (start != null &&
           start.inSeconds >= 1 &&
           (_player.position - start).abs() > const Duration(milliseconds: 1500)) {
@@ -361,19 +376,8 @@ class PlayerService extends ChangeNotifier {
       _loaded = true;
       if (autoplay && _wantPlay) unawaited(_player.play());
       notifyListeners();
-      if (local == null && !_useTranscoded) {
-        Future.delayed(const Duration(seconds: 4), () {
-          if (id != _loadId) return;
-          _client
-              .probeStream(uri, originalSize: t.file.sizeBytes)
-              .then((p) {
-            if (id == _loadId) {
-              _probe = p;
-              notifyListeners();
-            }
-          }).catchError((_) {});
-        });
-      }
+      _refreshNext();
+      if (local == null && !_useTranscoded) _scheduleProbe(t, id);
     } on PlayerInterruptedException {
       return;
     } catch (e) {
@@ -383,6 +387,101 @@ class PlayerService extends ChangeNotifier {
         if (autoplay && _wantPlay && !_recovering) unawaited(_recover());
       }
     }
+  }
+
+  AudioSource? _sourceFor(Track t) {
+    final local = localPathResolver?.call(t.id);
+    if (local != null) return AudioSource.uri(Uri.file(local));
+    if (_client.offlineForced) return null;
+    final uri = _useTranscoded
+        ? _client.transcodedStreamUri(t.id, bitrate: _kbps * 1000)
+        : _client.originalStreamUri(t.id);
+    return AudioSource.uri(uri, headers: _client.authHeaders);
+  }
+
+  int? _desiredNextPos() {
+    if (_repeat == QueueRepeat.one) return null;
+    if (_pos >= 0 && _pos + 1 < _order.length) return _pos + 1;
+    return null;
+  }
+
+  void _refreshNext() {
+    final c = _concat;
+    if (c == null || !_loaded || _mirror != null) return;
+    _nextOp = _nextOp.then((_) => _syncNext(c)).catchError((_) {});
+  }
+
+  Future<void> _syncNext(ConcatenatingAudioSource c) async {
+    if (!identical(c, _concat)) return;
+    final np = _desiredNextPos();
+    final nt = np == null ? null : _queue[_order[np]];
+    if (c.length == 2 && nt != null && _nextTrackId == nt.id) {
+      _nextPos = np!;
+      return;
+    }
+    if (c.length == 2) {
+      try {
+        await c.removeAt(1);
+      } catch (_) {}
+    }
+    _nextPos = -1;
+    _nextTrackId = null;
+    if (nt == null || !identical(c, _concat)) return;
+    final src = _sourceFor(nt);
+    if (src == null) return;
+    try {
+      await c.add(src);
+    } catch (_) {
+      return;
+    }
+    if (identical(c, _concat)) {
+      _nextPos = np!;
+      _nextTrackId = nt.id;
+    }
+  }
+
+  void _onIndex(int? i) {
+    final c = _concat;
+    if (i != 1 || c == null || _busyLoading || _mirror != null) return;
+    if (_nextPos < 0 || _nextPos >= _order.length) return;
+    _pos = _nextPos;
+    _nextPos = -1;
+    _nextTrackId = null;
+    final t = _cur;
+    if (t == null) return;
+    final id = ++_loadId;
+    _completionHandled = false;
+    _loaded = true;
+    _playerError = null;
+    _probe = null;
+    _lastPos = Duration.zero;
+    _pendingStart = Duration.zero;
+    _playingLocal = localPathResolver?.call(t.id) != null;
+    notifyListeners();
+    _persistQueue();
+    _nextOp = _nextOp.then((_) async {
+      if (!identical(c, _concat)) return;
+      try {
+        await c.removeAt(0);
+      } catch (_) {}
+      await _syncNext(c);
+    }).catchError((_) {});
+    if (!_playingLocal && !_useTranscoded) _scheduleProbe(t, id);
+  }
+
+  void _scheduleProbe(Track t, int id) {
+    Future.delayed(const Duration(seconds: 4), () {
+      if (id != _loadId) return;
+      _client
+          .probeStream(_client.originalStreamUri(t.id),
+              originalSize: t.file.sizeBytes)
+          .then((p) {
+        if (id == _loadId) {
+          _probe = p;
+          notifyListeners();
+        }
+      }).catchError((_) {});
+    });
   }
 
   void _onPlayerState(PlayerState s) {
@@ -486,6 +585,19 @@ class PlayerService extends ChangeNotifier {
   Future<void> next({bool auto = false}) async {
     if (_mirror != null) return _ctl('next');
     if (_order.isEmpty) return;
+    final c = _concat;
+    if (!auto &&
+        c != null &&
+        _loaded &&
+        c.length == 2 &&
+        _nextPos == _pos + 1) {
+      _wantPlay = true;
+      try {
+        await _player.seek(Duration.zero, index: 1);
+        unawaited(_player.play());
+        return;
+      } catch (_) {}
+    }
     if (_pos + 1 < _order.length) {
       _pos++;
       await _playCurrent();
@@ -564,6 +676,7 @@ class PlayerService extends ChangeNotifier {
     _rebuildOrder(_pos >= 0 ? _order[_pos] : -1);
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   void cycleRepeat() {
@@ -571,6 +684,7 @@ class PlayerService extends ChangeNotifier {
     _repeat = QueueRepeat.values[(_repeat.index + 1) % QueueRepeat.values.length];
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   Future<void> jumpToOrder(int p) async {
@@ -591,6 +705,7 @@ class PlayerService extends ChangeNotifier {
     _order.insert(at, _queue.length - 1);
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   Future<void> addAllToQueue(List<Track> ts) async {
@@ -607,6 +722,7 @@ class PlayerService extends ChangeNotifier {
     }
     _persistQueue(); // uma gravação só, em vez de uma por faixa
     notifyListeners();
+    _refreshNext();
   }
 
   void fillAround(Track current, List<Track> before, List<Track> after){
@@ -617,6 +733,7 @@ class PlayerService extends ChangeNotifier {
     _pos = before.length;
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   Future<void> playNext(Track t) async {
@@ -626,6 +743,7 @@ class PlayerService extends ChangeNotifier {
     _order.insert(_pos + 1, _queue.length - 1);
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   Future<void> removeAt(int p) async {
@@ -652,6 +770,7 @@ class PlayerService extends ChangeNotifier {
     }
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   void reorder(int oldP, int newP) {
@@ -667,6 +786,7 @@ class PlayerService extends ChangeNotifier {
     }
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   void clearUpcoming() {
@@ -678,9 +798,11 @@ class PlayerService extends ChangeNotifier {
     _pos = 0;
     _persistQueue();
     notifyListeners();
+    _refreshNext();
   }
 
   Future<void> reset() async {
+    _concat = null;
     _mirror = null;
     await _player.stop();
     _queue = [];
