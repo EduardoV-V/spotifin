@@ -7,15 +7,15 @@ import '../core/jellyfin/models.dart';
 
 /// Tamanhos padronizados (também usados ao baixar capas) para o cache ser
 /// reaproveitado entre telas e funcionar offline.
-const kCoverBuckets = [96, 300, 600];
+const kCoverBuckets = [400, 1000];
 
-int coverBucket(double? size) {
-  final px = (size ?? 600) * 1.5;
-  for (final b in kCoverBuckets) {
-    if (px <= b) return b;
-  }
-  return kCoverBuckets.last;
-}
+/// Miniaturas (até 150 dp) usam 400 px; telas grandes usam 1000 px. O ajuste
+/// ao tamanho exato é feito no cliente (cacheWidth).
+int coverBucket(double? size) => (size != null && size <= 150) ? 400 : 1000;
+
+int? coverCacheWidth(BuildContext context, double? size) => size == null
+    ? null
+    : (size * MediaQuery.devicePixelRatioOf(context)).round();
 
 /// Outros tamanhos, do mais próximo (maiores primeiro) ao mais distante.
 List<int> coverFallbacks(int b) => [
@@ -41,6 +41,7 @@ class Cover extends StatelessWidget {
           client.imageUri(cid, maxWidth: b).toString()
       ],
       headers: client.authHeaders,
+      cacheWidth: coverCacheWidth(context, size),
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => Container(
         color: AppColors.elevated,

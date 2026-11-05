@@ -1,6 +1,7 @@
 import 'core/cache/image_store.dart';
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
@@ -50,12 +51,20 @@ Future<void> main() async {
   if (client.session != null) await player.restore();
   if (Platform.isAndroid) {
     try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (e) {
+      debugPrint('audio_session: $e');
+    }
+    try {
       await AudioService.init(
         builder: () => SpotifinAudioHandler(player, client),
         config: const AudioServiceConfig(
           androidNotificationChannelId: 'com.spotifin.playback',
           androidNotificationChannelName: 'Reprodução',
-          androidStopForegroundOnPause: true,
+          // Mantém o serviço em primeiro plano entre faixas e em pausas curtas
+          // (senão o Android pode encerrar a reprodução com a tela apagada).
+          androidStopForegroundOnPause: false,
         ),
       );
     } catch (e) {

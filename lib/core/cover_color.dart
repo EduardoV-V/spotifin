@@ -1,9 +1,8 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-
 import '../app/app_scope.dart';
+import 'cache/image_store.dart';
 
 /// Cor dominante (escurecida) da capa de um item — usada em degradês
 /// de playlist/artista e no mini player, como no Spotify.
@@ -15,12 +14,11 @@ class CoverColor {
     if (c != null) return c;
     try {
       final client = scope.client;
-      final res = await http
-          .get(client.imageUri(itemId, maxWidth: 48),
-              headers: client.authHeaders)
-          .timeout(const Duration(seconds: 8));
-      if (res.statusCode != 200) return null;
-      final codec = await ui.instantiateImageCodec(res.bodyBytes,
+      // Usa a capa já guardada no app (reduzida aqui no cliente).
+      final url = client.imageUri(itemId, maxWidth: 400).toString();
+      final file = await ImageStore.get(url, headers: client.authHeaders);
+      if (file == null) return null;
+      final codec = await ui.instantiateImageCodec(await file.readAsBytes(),
           targetWidth: 16, targetHeight: 16);
       final img = (await codec.getNextFrame()).image;
       final bd = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
