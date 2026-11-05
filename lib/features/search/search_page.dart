@@ -10,6 +10,7 @@ import '../../app/app_scope.dart';
 import '../../app/theme.dart';
 import '../../core/artists/artist_info_service.dart';
 import '../../core/jellyfin/models.dart';
+import '../../widgets/context_menu.dart';
 import '../../widgets/smooth_scroll.dart';
 import '../../widgets/track_tile.dart';
 import '../albums/album_page.dart';
@@ -293,8 +294,7 @@ class _MobileSearchPageState extends State<MobileSearchPage> {
     }
     setState(() => _loading = true);
     _debounce = Timer(const Duration(milliseconds: 300), () async {
-      try {
-        final r = await AppScope.of(context).client.searchTracks(q, limit: 50);
+      void show(List<Track> r, {required bool done}) {
         if (!mounted || _ctrl.text.trim() != q) return;
         final count = <String, int>{};
         for (final t in r) {
@@ -319,8 +319,14 @@ class _MobileSearchPageState extends State<MobileSearchPage> {
           _tracks = r.take(8).toList();
           _artist = top;
           _albums = albums.take(3).toList();
-          _loading = false;
+          if (done) _loading = false;
         });
+      }
+
+      try {
+        final r = await AppScope.of(context).client.searchTracks(q,
+            limit: 50, onPartial: (p) => show(p, done: false));
+        show(r, done: true);
       } catch (_) {
         if (mounted) setState(() => _loading = false);
       }
@@ -466,19 +472,47 @@ class _MobileSearchPageState extends State<MobileSearchPage> {
                         _row(
                             _Rec('track', t.id, t.title, t.artist,
                                 t.albumId ?? t.id),
-                            trailing: IconButton(
-                              icon: Icon(
-                                  fav.isFavorite(t.id)
-                                      ? Icons.check_circle
-                                      : Icons.add_circle_outline,
-                                  color: fav.isFavorite(t.id)
-                                      ? AppColors.accent
-                                      : AppColors.textSecondary),
-                              onPressed: () => fav.toggle(t),
-                            )),
+                            trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    icon: Icon(
+                                        fav.isFavorite(t.id)
+                                            ? Icons.check_circle
+                                            : Icons.add_circle_outline,
+                                        color: fav.isFavorite(t.id)
+                                            ? AppColors.accent
+                                            : AppColors.textSecondary),
+                                    onPressed: () => fav.toggle(t),
+                                  ),
+                                  Builder(
+                                    builder: (ctx) => IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      tooltip: 'Mais opções',
+                                      icon: const Icon(Icons.more_vert,
+                                          color: AppColors.textSecondary),
+                                      onPressed: () =>
+                                          showTrackMenu(ctx, Offset.zero, t),
+                                    ),
+                                  ),
+                                ])),
                       for (final a in _albums)
-                        _row(_Rec('album', a.albumId!, a.album, a.artist,
-                            a.albumId!)),
+                        _row(
+                            _Rec('album', a.albumId!, a.album, a.artist,
+                                a.albumId!),
+                            trailing: Builder(
+                              builder: (ctx) => IconButton(
+                                tooltip: 'Mais opções',
+                                icon: const Icon(Icons.more_vert,
+                                    color: AppColors.textSecondary),
+                                onPressed: () => showAlbumMenu(
+                                    ctx, Offset.zero,
+                                    albumId: a.albumId!,
+                                    name: a.album,
+                                    artist: a.artist),
+                              ),
+                            )),
                       if (!_loading && _tracks.isEmpty && _artist == null)
                         const Padding(
                             padding: EdgeInsets.all(32),

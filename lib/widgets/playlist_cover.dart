@@ -38,6 +38,7 @@ class PlaylistCover extends StatelessWidget {
               height: size,
               child: Image.file(local,
                   key: ValueKey('lc${LocalCovers.rev.value}'),
+                  cacheWidth: coverCacheWidth(context, size),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => _Mosaic(id: id, size: size)),
             ),
@@ -46,12 +47,13 @@ class PlaylistCover extends StatelessWidget {
         return _remote(client, uri, [
           for (final b in coverFallbacks(px))
             client.imageUri(id, maxWidth: b).toString()
-        ]);
+        ], coverCacheWidth(context, size));
       },
     );
   }
 
-  Widget _remote(dynamic client, String uri, List<String> fallbacks) {
+  Widget _remote(dynamic client, String uri, List<String> fallbacks,
+      int? cacheWidth) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
@@ -62,6 +64,7 @@ class PlaylistCover extends StatelessWidget {
           fallbacks: version == 0 ? fallbacks : const [],
           key: ValueKey('$id#$version'),
           headers: client.authHeaders,
+          cacheWidth: cacheWidth,
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => _Mosaic(id: id, size: size),
         ),
@@ -95,6 +98,7 @@ class _Mosaic extends StatelessWidget {
                         maxWidth: (size).round().clamp(80, 400))
                     .toString(),
                 headers: client.authHeaders,
+                cacheWidth: coverCacheWidth(context, size / 2),
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) =>
                     Container(color: AppColors.elevated))

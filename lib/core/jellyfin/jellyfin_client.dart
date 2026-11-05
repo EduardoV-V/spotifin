@@ -386,7 +386,14 @@ class JellyfinClient {
 
   List<Track> _searchOffline(String term, int limit) {
     final q = _fold(term.trim());
-    final all = offlineTracks?.call() ?? const <Track>[];
+    final seen = <String>{};
+    final all = <Track>[
+      for (final t in [
+        ...(offlineTracks?.call() ?? const <Track>[]),
+        ...Track.cache.values
+      ])
+        if (seen.add(Track.key(t.id))) t
+    ];
     if (q.isEmpty) return all.take(limit).toList();
     return all
         .where((t) =>
@@ -397,9 +404,28 @@ class JellyfinClient {
         .toList();
   }
 
-  Future<List<Track>> searchTracks(String term, {int limit = 100}) async {
+  final _searchCache = <String, (DateTime, List<Track>)>{};
+
+  /// [onPartial] recebe resultados parciais (local e primeira etapa do
+  /// servidor) para a tela mostrar algo logo; o retorno é o resultado final.
+  Future<List<Track>> searchTracks(String term,
+      {int limit = 100, void Function(List<Track>)? onPartial}) async {
+    final key = '${_fold(term)}|$limit';
+    final c = _searchCache[key];
+    if (c != null &&
+        DateTime.now().difference(c.$1).inSeconds < 90 &&
+        !offlineForced) {
+      return c.$2;
+    }
+    if (onPartial != null) {
+      final local = _searchOffline(term, limit);
+      if (local.isNotEmpty) onPartial(local);
+    }
     try {
-      return await _searchOnline(term, limit);
+      final r = await _searchOnline(term, limit, onPartial);
+      if (_searchCache.length > 60) _searchCache.remove(_searchCache.keys.first);
+      _searchCache[key] = (DateTime.now(), r);
+      return r;
     } catch (e) {
       if (isNetworkError(e) || offlineForced) return _searchOffline(term, limit);
       rethrow;
@@ -409,34 +435,48 @@ class JellyfinClient {
   /// True quando o usuário ligou o modo offline manual.
   bool offlineForced = false;
 
-  Future<List<Track>> _searchOnline(String term, int limit) async {
+  Future<List<Track>> _searchOnline(String term, int limit,
+      [void Function(List<Track>)? onPartial]) async {
     if (offlineForced) throw TimeoutException('offline');
+    // Sem imagens nem contagem total: respostas bem menores.
+    const light = {'enableImages': 'false', 'enableTotalRecordCount': 'false'};
     final found = await Future.wait([
       _items('/Items', {
+        ...light,
         'includeItemTypes': 'Audio',
         'searchTerm': term,
         'limit': '$limit',
         'sortBy': 'SortName',
       }),
-      _items('/Artists', {'searchTerm': term, 'limit': '5'}),
+      _items('/Artists', {...light, 'searchTerm': term, 'limit': '3'}),
       _items('/Items', {
+        ...light,
         'includeItemTypes': 'MusicAlbum',
         'searchTerm': term,
-        'limit': '5',
+        'limit': '3',
       }),
     ]);
     String idOf(dynamic e) => (e as Map<String, dynamic>)['Id'] as String;
+    if (onPartial != null) {
+      onPartial([
+        for (final e in found[0]) Track.fromJson(e as Map<String, dynamic>)
+      ]);
+    }
 
+    // Etapa 2 (artistas/álbuns encontrados), com menos itens por consulta.
+    final per = limit < 40 ? limit : 40;
     final byArtist = await Future.wait(found[1].map((a) => _items('/Items', {
+          ...light,
           'includeItemTypes': 'Audio',
           'artistIds': idOf(a),
-          'limit': '$limit',
+          'limit': '$per',
           'sortBy': 'Album,ParentIndexNumber,IndexNumber,SortName',
         })));
     final byAlbum = await Future.wait(found[2].map((a) => _items('/Items', {
+          ...light,
           'includeItemTypes': 'Audio',
           'albumIds': idOf(a),
-          'limit': '$limit',
+          'limit': '$per',
           'sortBy': 'ParentIndexNumber,IndexNumber,SortName',
         })));
 
@@ -933,10 +973,14 @@ class JellyfinClient {
     );
   }
 
-  Uri imageUri(String itemId, {int maxWidth = 300}) {
+  /// Só dois tamanhos (400 e 1000 px): o servidor redimensiona uma vez por
+  /// tamanho e o app guarda uma cópia por imagem; o ajuste fino ao tamanho da
+  /// tela é feito no cliente.
+  Uri imageUri(String itemId, {int maxWidth = 400}) {
     final s = _requireSession();
+    final w = maxWidth <= 400 ? 400 : 1000;
     return Uri.parse('${s.serverUrl}/Items/$itemId/Images/Primary')
-        .replace(queryParameters: {'maxWidth': '$maxWidth'});
+        .replace(queryParameters: {'maxWidth': '$w'});
   }
 
   /// Pede só o primeiro byte (Range) e compara o tamanho total com o do arquivo

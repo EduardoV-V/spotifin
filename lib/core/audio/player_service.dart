@@ -59,6 +59,13 @@ class PlayerService extends ChangeNotifier {
     });
     _player.positionStream.listen((p) {
       if (_mirror == null) _posCtl.add(p);
+      if (_loaded && p > Duration.zero) _lastPos = p;
+    });
+    // Erros de rede no meio da faixa (tela apagada, troca de rede): tenta
+    // retomar do mesmo ponto em vez de ficar parado.
+    _player.playbackEventStream.listen((_) {}, onError: (Object e, StackTrace s) {
+      debugPrint('player: $e');
+      if (!_busyLoading) unawaited(_recover());
     });
     Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (_mirror != null) _posCtl.add(_mirror!.position);
@@ -148,6 +155,38 @@ class PlayerService extends ChangeNotifier {
       _pos >= 0 && _pos < _order.length ? _queue[_order[_pos]] : null;
   Track? get current => _mirror?.track ?? _cur;
   bool _wantPlay = false;
+  bool _recovering = false;
+  Duration _lastPos = Duration.zero;
+
+  /// Estado "tocando" para a notificação e a sessão de mídia do sistema.
+  /// Continua verdadeiro nas trocas de faixa e nas retomadas, para o serviço
+  /// em primeiro plano não ser derrubado a cada fim de música.
+  bool get sessionPlaying {
+    if (_mirror != null) return !_mirror!.paused;
+    if (_playerError != null) return false;
+    final st = _player.processingState;
+    if (_player.playing && st != ProcessingState.completed) return true;
+    return _wantPlay &&
+        (_busyLoading || _recovering || st == ProcessingState.completed);
+  }
+
+  Future<void> _recover() async {
+    if (_recovering || _mirror != null || _cur == null || !_wantPlay) return;
+    _recovering = true;
+    notifyListeners();
+    try {
+      for (var i = 0; i < 4; i++) {
+        await Future.delayed(Duration(seconds: 1 + i * 3));
+        if (_mirror != null || _cur == null || !_wantPlay) return;
+        await _playCurrent(start: _lastPos);
+        if (_playerError == null && _loaded) return;
+      }
+      _wantPlay = false;
+    } finally {
+      _recovering = false;
+      notifyListeners();
+    }
+  }
   bool get playing => _mirror != null
       ? !_mirror!.paused
       : (_player.playing && _player.processingState != ProcessingState.completed) ||
@@ -281,6 +320,7 @@ class PlayerService extends ChangeNotifier {
     final t = _cur;
     if (t == null) return;
     _wantPlay = autoplay;
+    _lastPos = start ?? Duration.zero;
     final id = ++_loadId;
     _completionHandled = false;
     _loaded = false;
@@ -340,11 +380,21 @@ class PlayerService extends ChangeNotifier {
       if (id == _loadId) {
         _playerError = 'Falha ao reproduzir: $e';
         notifyListeners();
+        if (autoplay && _wantPlay && !_recovering) unawaited(_recover());
       }
     }
   }
 
   void _onPlayerState(PlayerState s) {
+    // Pausa vinda do sistema (ligação, fone desconectado): não é para retomar.
+    if (!s.playing &&
+        s.processingState != ProcessingState.completed &&
+        s.processingState != ProcessingState.idle &&
+        _loaded &&
+        !_busyLoading &&
+        !_recovering) {
+      _wantPlay = false;
+    }
     notifyListeners();
     if (!s.playing) _persistPosition();
     if (s.processingState == ProcessingState.completed && !_completionHandled) {
@@ -370,6 +420,7 @@ class PlayerService extends ChangeNotifier {
       await _playCurrent(start: _pendingStart);
       return;
     }
+    _wantPlay = true;
     _completionHandled = false;
     unawaited(_player.play());
   }
@@ -442,9 +493,11 @@ class PlayerService extends ChangeNotifier {
       _restartOrder();
       await _playCurrent();
     } else {
+      _wantPlay = false;
       await _player.pause();
       await _player.seek(Duration.zero);
       _completionHandled = false;
+      notifyListeners();
     }
     _persistQueue();
   }
@@ -474,6 +527,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _wantPlay = false;
     if (_loaded) _pendingStart = _player.position;
     await _player.stop();
     _loaded = false;

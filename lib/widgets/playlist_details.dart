@@ -80,6 +80,10 @@ class _DetailsState extends State<_Details> {
     final r = await FilePicker.platform
         .pickFiles(type: FileType.image, withData: true);
     final f = r?.files.single;
+    // O seletor copia a imagem para uma pasta temporária; já temos os bytes.
+    try {
+      await FilePicker.platform.clearTemporaryFiles();
+    } catch (_) {}
     if (f?.bytes == null) return;
     final ext = (f!.extension ?? '').toLowerCase();
     setState(() {
