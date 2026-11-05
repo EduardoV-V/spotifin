@@ -1,7 +1,7 @@
 name: spotifin
 description: Spotify-style music player for your Jellyfin library (Android, Windows, Linux).
 publish_to: none
-version: 1.0.1+1
+version: 1.0.1+2
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
