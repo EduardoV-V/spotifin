@@ -170,7 +170,16 @@ class DownloadService extends ChangeNotifier {
       _dir = Directory(await _defaultDir());
       await _dir.create(recursive: true);
     }
+    _noMedia(_dir);
     await _openIndex();
+  }
+
+  /// Evita que galeria/players do Android indexem a pasta de downloads.
+  void _noMedia(Directory d) {
+    try {
+      final f = File('${d.path}${_sep}.nomedia');
+      if (!f.existsSync()) f.createSync();
+    } catch (_) {}
   }
 
   File _indexOf(String? userId) => File(userId == null
@@ -269,6 +278,7 @@ class DownloadService extends ChangeNotifier {
       await probe.writeAsString('ok');
       await probe.delete();
       _dir = d;
+      _noMedia(d);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kDir, d.path);
       notifyListeners();
@@ -462,7 +472,7 @@ class DownloadService extends ChangeNotifier {
   /// Guarda a capa em disco para a faixa baixada aparecer com capa offline.
   void _cacheCovers(Track t) {
     final cid = t.albumId ?? t.id;
-    for (final w in const [96, 300, 600]) {
+    for (final w in const [400, 1000]) {
       ImageStore.get(_client.imageUri(cid, maxWidth: w).toString(),
           background: true,
           headers: _client.authHeaders);

@@ -29,6 +29,14 @@ class ImageStore {
     return (h & 0x7fffffffffffffff).toRadixString(16);
   }
 
+  /// Impede que a galeria do Android indexe estas imagens.
+  static void _noMedia(Directory d) {
+    try {
+      final f = File('${d.path}${Platform.pathSeparator}.nomedia');
+      if (!f.existsSync()) f.createSync();
+    } catch (_) {}
+  }
+
   static Future<void> init() async {
     try {
       await _root();
@@ -54,6 +62,7 @@ class ImageStore {
     final base = await getApplicationSupportDirectory();
     final dir = Directory('${base.path}${Platform.pathSeparator}img_cache');
     if (!dir.existsSync()) dir.createSync(recursive: true);
+    _noMedia(dir);
     return _dir = dir;
   }
 

@@ -17,6 +17,10 @@ class LocalCovers {
     final base = await getApplicationSupportDirectory();
     final dir = Directory('${base.path}${Platform.pathSeparator}covers');
     if (!dir.existsSync()) dir.createSync(recursive: true);
+    try {
+      final nm = File('${dir.path}${Platform.pathSeparator}.nomedia');
+      if (!nm.existsSync()) nm.createSync();
+    } catch (_) {}
     return _dir = dir;
   }
 

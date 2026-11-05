@@ -14,6 +14,8 @@ class NetImage extends StatefulWidget {
   final BoxFit? fit;
   final double? width;
   final double? height;
+  /// Largura em pixels para decodificar (reduz no cliente, sem pedir ao servidor).
+  final int? cacheWidth;
   final AlignmentGeometry alignment;
   final Widget Function(BuildContext, Object, StackTrace?)? errorBuilder;
   const NetImage(this.url,
@@ -23,6 +25,7 @@ class NetImage extends StatefulWidget {
       this.fit,
       this.width,
       this.height,
+      this.cacheWidth,
       this.alignment = Alignment.center,
       this.errorBuilder});
   @override
@@ -91,6 +94,7 @@ class _NetImageState extends State<NetImage> {
     if (f == null && _net) {
       return Image.network(widget.url,
           headers: widget.headers,
+          cacheWidth: widget.cacheWidth,
           width: widget.width,
           height: widget.height,
           alignment: widget.alignment,
@@ -100,6 +104,7 @@ class _NetImageState extends State<NetImage> {
     if (f == null) return SizedBox(width: widget.width, height: widget.height);
     return Image.file(f,
         key: ValueKey(f.path),
+        cacheWidth: widget.cacheWidth,
         width: widget.width,
         height: widget.height,
         alignment: widget.alignment,
