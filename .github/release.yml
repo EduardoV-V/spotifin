@@ -1,0 +1,22 @@
+
+changelog:
+  categories:
+    - title: "Bug Fixes"
+      labels:
+        - bug
+        - fix
+    - title: "Improvements"
+      labels:
+        - enhancement
+        - improvement
+    - title: "Additions"
+      labels:
+        - add
+        - new
+    - title: "Maintenance"
+      labels:
+        - chore
+        - documentation
+    - title: "Other Changes"
+      labels:
+        - "*"
