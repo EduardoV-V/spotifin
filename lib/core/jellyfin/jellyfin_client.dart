@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:convert';
 import 'dart:io' show SocketException, HandshakeException;
 import 'dart:typed_data';
@@ -220,7 +221,9 @@ class JellyfinClient {
     }
   }
 
-  Future<List<dynamic>> _items(String path, Map<String, String> query) async {
+  Future<List<dynamic>> _items(String path, Map<String, String> query,
+      {Duration timeout = const Duration(seconds: 12),
+      bool markOffline = true}) async {
     if (offlineForced) throw TimeoutException('modo offline');
     final s = _requireSession();
     final uri = Uri.parse('${s.serverUrl}$path').replace(queryParameters: {
@@ -229,8 +232,9 @@ class JellyfinClient {
       'fields': 'MediaSources',
       ...query,
     });
-    final res = await _guard(
-        () => _http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 12)));
+    Future<http.Response> go() =>
+        _http.get(uri, headers: authHeaders).timeout(timeout);
+    final res = await (markOffline ? _guard(go) : go());
     if (res.statusCode != 200) {
       throw JellyfinException('Falha na busca (HTTP ${res.statusCode}).');
     }
@@ -543,13 +547,32 @@ class JellyfinClient {
   Future<List<PlaylistInfo>> playlists() async {
     final items = await _items('/Items', {
       'includeItemTypes': 'Playlist',
-      'mediaTypes': 'Audio',
       'sortBy': 'SortName',
       'fields': 'ChildCount',
     });
     return items
         .map((e) => PlaylistInfo.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  // Playlists grandes ou criadas por fora do app: tempo maior, sem marcar o
+  // app como offline por causa de uma única requisição lenta, e itens
+  // inválidos são ignorados em vez de derrubar a lista inteira.
+  Future<List<Track>> _plItems(String id) async {
+    final items = await _items('/Playlists/$id/Items', {},
+        timeout: const Duration(seconds: 60), markOffline: false);
+    final out = <Track>[];
+    for (final e in items) {
+      try {
+        final m = e as Map<String, dynamic>;
+        final type = m['Type'] as String?;
+        if (type != null && type != 'Audio') continue;
+        out.add(Track.fromJson(m));
+      } catch (err) {
+        debugPrint('playlist item ignorado: $err');
+      }
+    }
+    return out;
   }
 
   Future<List<Track>> playlistTracks(String id) async {
@@ -572,9 +595,7 @@ class JellyfinClient {
       if (c != null) return c;
     }
     try {
-      final items = await _items('/Playlists/$id/Items', {});
-      final out =
-          items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
+      final out = await _plItems(id);
       MetaCache.put(ck, out.map((t) => t.toJson()).toList());
       return out;
     } catch (e) {
@@ -586,8 +607,7 @@ class JellyfinClient {
 
   /// Faixas da playlist direto do servidor (sem cache), com os IDs de entrada.
   Future<List<Track>> playlistTracksRemote(String id) async {
-    final items = await _items('/Playlists/$id/Items', {});
-    return items.map((e) => Track.fromJson(e as Map<String, dynamic>)).toList();
+    return _plItems(id);
   }
 
   Future<List<Track>?> cachedPlaylistTracks(String id) async {

@@ -83,22 +83,51 @@ class PlaylistsService extends ChangeNotifier {
     Future<void> Function() op,
     String type,
     Map<String, dynamic> data,
-    Future<void> Function() local,
-  ) async {
+    Future<void> Function() local, {
+    bool optimistic = false,
+    bool needsCache = false,
+  }) async {
     final pid = data['pid'] as String?;
     final queued = _outbox != null &&
         pid != null &&
         (pid.startsWith('local-') || _outbox!.hasPendingFor(pid));
     if ((_online || _outbox == null) && !queued) {
+      // Otimista: aplica a mudança local antes de falar com o servidor e
+      // desfaz se ele recusar.
+      final prevLists = _lists;
+      final prevTracks =
+          (optimistic && pid != null) ? await _client.cachedPlaylistTracks(pid) : null;
+      final doOpt = optimistic && (!needsCache || prevTracks != null);
+      if (doOpt) {
+        await local();
+        notifyListeners();
+      }
+      Future<void> undo() async {
+        if (!doOpt) return;
+        _lists = prevLists;
+        if (pid != null && prevTracks != null) {
+          await _client.putPlaylistTracks(pid, prevTracks);
+        }
+        await _saveLists();
+        notifyListeners();
+      }
+
       try {
         await op();
         await refresh();
         return null;
       } on JellyfinException catch (e) {
+        await undo();
         return e.message;
       } catch (e) {
         if (_outbox == null || !JellyfinClient.isNetworkError(e)) {
+          await undo();
           return 'Sem conexão com o servidor.';
+        }
+        if (doOpt) {
+          await _outbox!.enqueue(type, data);
+          notifyListeners();
+          return null;
         }
       }
     }
@@ -156,6 +185,8 @@ class PlaylistsService extends ChangeNotifier {
           _setCount(playlistId, next.length);
           await _saveLists();
         },
+        optimistic: true,
+        needsCache: true,
       );
 
   /// Alguns servidores Jellyfin apagam todas as cópias de uma faixa repetida;
@@ -211,6 +242,8 @@ class PlaylistsService extends ChangeNotifier {
           _setCount(playlistId, next.length);
           await _saveLists();
         },
+        optimistic: true,
+        needsCache: true,
       );
 
   Future<String?> move(String playlistId, Track t, int index) => _run(
@@ -232,6 +265,8 @@ class PlaylistsService extends ChangeNotifier {
           cur.insert(index.clamp(0, cur.length), item);
           await _client.putPlaylistTracks(playlistId, cur);
         },
+        optimistic: true,
+        needsCache: true,
       );
 
   Future<String?> rename(String playlistId, String name) => _run(
@@ -245,6 +280,7 @@ class PlaylistsService extends ChangeNotifier {
           ];
           await _saveLists();
         },
+        optimistic: true,
       );
 
   Future<String?> delete(String playlistId) => _run(
@@ -255,5 +291,6 @@ class PlaylistsService extends ChangeNotifier {
           _lists = _lists.where((p) => p.id != playlistId).toList();
           await _saveLists();
         },
+        optimistic: true,
       );
 }
