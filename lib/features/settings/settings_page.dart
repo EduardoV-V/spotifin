@@ -6,6 +6,7 @@ import '../../app/account_actions.dart';
 import '../../app/app_scope.dart';
 import '../../app/nav.dart';
 import '../../app/version.dart';
+import '../../core/update/update_service.dart';
 import '../../core/jellyfin/jellyfin_client.dart';
 import '../../core/jellyfin/models.dart';
 import '../../core/storage/session_store.dart';
@@ -238,8 +239,14 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const _MetaKeys(),
             const SizedBox(height: 8),
-            const Text('Spotifin $appVersion',
-                style: TextStyle(fontSize: 11, color: Colors.white38)),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.system_update_alt),
+              title: const Text('Verificar atualizações'),
+              subtitle: const Text('Versão $appVersion'),
+              onTap: () => UpdateService.instance
+                  .check(() => context, manual: true),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.download_outlined),
