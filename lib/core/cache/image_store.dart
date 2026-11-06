@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../net/net_policy.dart';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,7 +13,7 @@ class ImageStore {
   static final _inflight = <String, Future<File?>>{};
   static final _failedAt = <String, DateTime>{};
   static Directory? _dir;
-  static final _client = http.Client();
+  static final _client = GuardedClient();
   static int _running = 0;
   static final _waiters = <Completer<void>>[];
   static int _bgRunning = 0;

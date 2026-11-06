@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../jellyfin/jellyfin_client.dart';
+import 'net_policy.dart';
 
 /// Estado de conexão com o servidor Jellyfin (sem plugin: testa o servidor
 /// periodicamente e reage a falhas de rede reportadas pelo cliente).
@@ -28,6 +29,7 @@ class ConnectivityService extends ChangeNotifier {
       _forced = (await SharedPreferences.getInstance()).getBool(_kForce) ?? false;
     } catch (_) {}
     _client.offlineForced = _forced;
+    NetPolicy.offline = _forced;
     notifyListeners();
     unawaited(check());
   }
@@ -68,6 +70,7 @@ class ConnectivityService extends ChangeNotifier {
   Future<void> setForced(bool v) async {
     _forced = v;
     _client.offlineForced = v;
+    NetPolicy.offline = v;
     notifyListeners();
     try {
       await (await SharedPreferences.getInstance()).setBool(_kForce, v);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../net/net_policy.dart';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -81,7 +82,7 @@ class ArtistInfoService {
 
   final _mem = <String, ArtistInfo?>{};
   final _pending = <String, Future<ArtistInfo?>>{};
-  final _http = http.Client();
+  final _http = GuardedClient();
 
   static String primary(String artist) => artist.split(RegExp(r',\s*|;\s*')).first.trim();
   static String _key(String n) => n.toLowerCase().trim();
@@ -336,7 +337,7 @@ class LastFmService {
 
   static const prefKey = 'lastfm_key';
   static const lbPref = 'meta_lb_token';
-  final _http = http.Client();
+  final _http = GuardedClient();
   final _mem = <String, Map<String, int>>{};
 
   static String norm(String t) => t
@@ -449,7 +450,7 @@ class LastFmService {
 
 /// Testa cada fonte de metadados e devolve um relatório curto.
 Future<String> diagnoseMetadata() async {
-  final c = http.Client();
+  final c = GuardedClient();
   const ua = {'User-Agent': 'Spotifin/0.1 (personal use)'};
   Future<String> t(String label, Uri u, [Map<String, String>? h]) async {
     try {

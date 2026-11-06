@@ -201,7 +201,26 @@ class _PlaylistPageState extends State<PlaylistPage> {
   Future<void> _load() async {
     if (_deleting) return;
     try {
-      final l = await _scope.client.playlistTracks(widget.info.id);
+      // Cache primeiro (abre na hora) e a lista completa atualiza depois.
+      final cached = await _scope.client.cachedPlaylistTracks(widget.info.id);
+      var shown = false;
+      if (cached != null && _tracks.isEmpty && mounted) {
+        shown = true;
+        setState(() {
+          _tracks = cached;
+          _loading = false;
+        });
+      }
+      final l = await _scope.client.playlistTracks(widget.info.id,
+          onPartial: (p) {
+        if (!shown && mounted && !_deleting) {
+          shown = true;
+          setState(() {
+            _tracks = p;
+            _loading = false;
+          });
+        }
+      });
       if (mounted) {
         setState(() {
           _tracks = l;

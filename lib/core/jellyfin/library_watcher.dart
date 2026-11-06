@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../net/net_policy.dart';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
@@ -71,7 +72,7 @@ class LibraryWatcher with WidgetsBindingObserver {
 
   void _connect() {
     final s = _client.session;
-    if (s == null) return;
+    if (s == null || NetPolicy.offline) return;
     final u = Uri.parse(s.serverUrl);
     final uri = Uri(
       scheme: u.scheme == 'https' ? 'wss' : 'ws',

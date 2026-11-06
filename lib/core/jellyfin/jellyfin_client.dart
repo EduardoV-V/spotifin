@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../net/net_policy.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:convert';
 import 'dart:io' show SocketException, HandshakeException;
@@ -27,7 +28,7 @@ class JellyfinClient {
   JellyfinSession? session;
 
   JellyfinClient({http.Client? httpClient, this.deviceName = 'Device'})
-      : _http = httpClient ?? http.Client();
+      : _http = httpClient ?? GuardedClient();
 
   static String normalizeUrl(String url) {
     var u = url.trim();
@@ -558,24 +559,73 @@ class JellyfinClient {
   // Playlists grandes ou criadas por fora do app: tempo maior, sem marcar o
   // app como offline por causa de uma única requisição lenta, e itens
   // inválidos são ignorados em vez de derrubar a lista inteira.
-  Future<List<Track>> _plItems(String id) async {
-    final items = await _items('/Playlists/$id/Items', {},
-        timeout: const Duration(seconds: 60), markOffline: false);
-    final out = <Track>[];
-    for (final e in items) {
-      try {
-        final m = e as Map<String, dynamic>;
-        final type = m['Type'] as String?;
-        if (type != null && type != 'Audio') continue;
-        out.add(Track.fromJson(m));
-      } catch (err) {
-        debugPrint('playlist item ignorado: $err');
+  Track? _plTrack(dynamic e) {
+    try {
+      final m = e as Map<String, dynamic>;
+      final type = m['Type'] as String?;
+      if (type != null && type != 'Audio') return null;
+      return Track.fromJson(m);
+    } catch (err) {
+      debugPrint('playlist item ignorado: $err');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> _plPage(String id, int start, int limit) async {
+    if (offlineForced) throw TimeoutException('modo offline');
+    final s = _requireSession();
+    final uri = Uri.parse('${s.serverUrl}/Playlists/$id/Items').replace(
+        queryParameters: {
+      'userId': s.userId,
+      'fields': 'MediaSources',
+      'startIndex': '$start',
+      'limit': '$limit',
+    });
+    final res = await _http
+        .get(uri, headers: authHeaders)
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode != 200) {
+      throw JellyfinException('Falha na busca (HTTP ${res.statusCode}).');
+    }
+    return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// Carrega a playlist em páginas: a primeira (pequena) já é entregue em
+  /// [onPartial], o resto vem em paralelo.
+  Future<List<Track>> _plItems(String id,
+      {void Function(List<Track>)? onPartial}) async {
+    const first = 40, page = 150;
+    final j0 = await _plPage(id, 0, first);
+    final raw0 = (j0['Items'] as List?) ?? const [];
+    final total = (j0['TotalRecordCount'] as num?)?.toInt() ?? raw0.length;
+    final out = raw0.map(_plTrack).whereType<Track>().toList();
+    // Servidor ignorou o limite (já veio tudo): termina.
+    if (raw0.length >= total || raw0.length > first) return out;
+    onPartial?.call(List.of(out));
+    final starts = [for (var i = first; i < total; i += page) i];
+    final parts = List<List<Track>>.filled(starts.length, const []);
+    var next = 0;
+    Future<void> worker() async {
+      while (true) {
+        final k = next++;
+        if (k >= starts.length) return;
+        final j = await _plPage(id, starts[k], page);
+        parts[k] = ((j['Items'] as List?) ?? const [])
+            .map(_plTrack)
+            .whereType<Track>()
+            .toList();
       }
+    }
+
+    await Future.wait([worker(), worker()]);
+    for (final p in parts) {
+      out.addAll(p);
     }
     return out;
   }
 
-  Future<List<Track>> playlistTracks(String id) async {
+  Future<List<Track>> playlistTracks(String id,
+      {void Function(List<Track>)? onPartial}) async {
     final ck = 'pltracks_${session?.userId}_$id';
     Future<List<Track>?> fromCache() async {
       final c = await MetaCache.get(ck, const Duration(days: 3650));
@@ -595,7 +645,7 @@ class JellyfinClient {
       if (c != null) return c;
     }
     try {
-      final out = await _plItems(id);
+      final out = await _plItems(id, onPartial: onPartial);
       MetaCache.put(ck, out.map((t) => t.toJson()).toList());
       return out;
     } catch (e) {

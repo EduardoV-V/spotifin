@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../core/net/net_policy.dart';
 import 'package:flutter/material.dart';
 
 import '../core/cache/image_store.dart';
@@ -91,7 +92,7 @@ class _NetImageState extends State<NetImage> {
   @override
   Widget build(BuildContext context) {
     final f = _file;
-    if (f == null && _net) {
+    if (f == null && _net && !NetPolicy.offline) {
       return Image.network(widget.url,
           headers: widget.headers,
           cacheWidth: widget.cacheWidth,

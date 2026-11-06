@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:audio_session/audio_session.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'core/update/update_service.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'app/app_scope.dart';
@@ -29,6 +30,7 @@ import 'core/storage/session_store.dart';
 import 'features/auth/login_page.dart';
 
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
+final navKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -116,6 +118,18 @@ Future<void> main() async {
     ..onConnected = connect.announce;
   connect.onSessionsPush = watcher.setSessionsPush;
   if (client.session != null) watcher.start();
+  var wasForced = conn.forced;
+  conn.addListener(() {
+    if (conn.forced == wasForced) return;
+    wasForced = conn.forced;
+    if (wasForced) {
+      watcher.stop();
+      player.onForcedOffline();
+    } else {
+      if (client.session != null) watcher.start();
+      downloads.resumeNetwork();
+    }
+  });
   runApp(SpotifinApp(
       client: client,
       player: player,
@@ -129,6 +143,12 @@ Future<void> main() async {
       conn: conn,
       outbox: outbox));
   if (Platform.isAndroid) FlutterForegroundTask.requestNotificationPermission();
+  if (client.session != null) {
+    Future.delayed(
+        const Duration(seconds: 6),
+        () => UpdateService.instance
+            .check(() => navKey.currentState!.overlay!.context));
+  }
 }
 
 class SpotifinApp extends StatelessWidget {
@@ -174,6 +194,7 @@ class SpotifinApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Spotifin',
         scaffoldMessengerKey: messengerKey,
+        navigatorKey: navKey,
         debugShowCheckedModeBanner: false,
         theme: buildTheme(),
         home: client.session == null ? const LoginPage() : const AppShell(),

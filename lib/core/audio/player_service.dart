@@ -110,8 +110,8 @@ class PlayerService extends ChangeNotifier {
   bool _loaded = false;
   // Pré-carregamento da próxima faixa (gapless): [atual] + [próxima].
   ConcatenatingAudioSource? _concat;
-  int _nextPos = -1;
-  String? _nextTrackId;
+  int _cIdx = 0;
+  List<String> _cIds = [];
   Future<void> _nextOp = Future.value();
   bool _completionHandled = false;
   Duration _pendingStart = Duration.zero;
@@ -337,8 +337,8 @@ class PlayerService extends ChangeNotifier {
     final local = localPathResolver?.call(t.id);
     _playingLocal = local != null;
     _concat = null;
-    _nextPos = -1;
-    _nextTrackId = null;
+    _cIdx = 0;
+    _cIds = [t.id];
     if (local == null && _client.offlineForced) {
       _loaded = false;
       _playerError = 'Sem conexão: baixe a faixa para ouvir offline.';
@@ -399,11 +399,7 @@ class PlayerService extends ChangeNotifier {
     return AudioSource.uri(uri, headers: _client.authHeaders);
   }
 
-  int? _desiredNextPos() {
-    if (_repeat == QueueRepeat.one) return null;
-    if (_pos >= 0 && _pos + 1 < _order.length) return _pos + 1;
-    return null;
-  }
+  static const _ahead = 2;
 
   void _refreshNext() {
     final c = _concat;
@@ -411,44 +407,60 @@ class PlayerService extends ChangeNotifier {
     _nextOp = _nextOp.then((_) => _syncNext(c)).catchError((_) {});
   }
 
+  // Mantém no player a faixa atual + até [_ahead] seguintes. A troca entre
+  // faixas é feita pelo player nativo (sem depender do Dart, mesmo com a
+  // tela apagada) e o que já tocou é descartado depois.
   Future<void> _syncNext(ConcatenatingAudioSource c) async {
-    if (!identical(c, _concat)) return;
-    final np = _desiredNextPos();
-    final nt = np == null ? null : _queue[_order[np]];
-    if (c.length == 2 && nt != null && _nextTrackId == nt.id) {
-      _nextPos = np!;
-      return;
+    if (!identical(c, _concat) || _pos < 0) return;
+    final cur = _cIdx;
+    final wantPos = <int>[
+      if (_repeat != QueueRepeat.one)
+        for (var k = 1; k <= _ahead; k++)
+          if (_pos + k < _order.length) _pos + k
+    ];
+    final wantIds = [for (final p in wantPos) _queue[_order[p]].id];
+    final have = _cIds.length > cur + 1 ? _cIds.sublist(cur + 1) : <String>[];
+    var m = 0;
+    while (m < have.length && m < wantIds.length && have[m] == wantIds[m]) {
+      m++;
     }
-    if (c.length == 2) {
-      try {
-        await c.removeAt(1);
-      } catch (_) {}
-    }
-    _nextPos = -1;
-    _nextTrackId = null;
-    if (nt == null || !identical(c, _concat)) return;
-    final src = _sourceFor(nt);
-    if (src == null) return;
     try {
-      await c.add(src);
-    } catch (_) {
-      return;
-    }
-    if (identical(c, _concat)) {
-      _nextPos = np!;
-      _nextTrackId = nt.id;
+      if (have.length > m) {
+        _cIds.removeRange(cur + 1 + m, _cIds.length);
+        await c.removeRange(cur + 1 + m, c.length);
+      }
+      for (var k = m; k < wantPos.length; k++) {
+        if (!identical(c, _concat)) return;
+        final src = _sourceFor(_queue[_order[wantPos[k]]]);
+        if (src == null) break;
+        await c.add(src);
+        _cIds.add(wantIds[k]);
+      }
+      if (cur > 0 && identical(c, _concat)) {
+        _cIdx = 0;
+        _cIds.removeRange(0, cur);
+        await c.removeRange(0, cur);
+      }
+    } catch (e) {
+      debugPrint('preload: $e');
     }
   }
 
   void _onIndex(int? i) {
     final c = _concat;
-    if (i != 1 || c == null || _busyLoading || _mirror != null) return;
-    if (_nextPos < 0 || _nextPos >= _order.length) return;
-    _pos = _nextPos;
-    _nextPos = -1;
-    _nextTrackId = null;
-    final t = _cur;
-    if (t == null) return;
+    if (i == null || c == null || _busyLoading || _mirror != null) return;
+    if (i == _cIdx) return;
+    final np = _pos + (i - _cIdx);
+    _cIdx = i;
+    if (np < 0 || np >= _order.length) return;
+    final t = _queue[_order[np]];
+    _pos = np;
+    final ok = i < _cIds.length && _cIds[i] == t.id;
+    if (!ok) {
+      // Fila mudou durante a troca: recarrega a faixa certa.
+      unawaited(_playCurrent());
+      return;
+    }
     final id = ++_loadId;
     _completionHandled = false;
     _loaded = true;
@@ -459,14 +471,24 @@ class PlayerService extends ChangeNotifier {
     _playingLocal = localPathResolver?.call(t.id) != null;
     notifyListeners();
     _persistQueue();
-    _nextOp = _nextOp.then((_) async {
-      if (!identical(c, _concat)) return;
-      try {
-        await c.removeAt(0);
-      } catch (_) {}
-      await _syncNext(c);
-    }).catchError((_) {});
+    _refreshNext();
     if (!_playingLocal && !_useTranscoded) _scheduleProbe(t, id);
+  }
+
+  /// Modo offline forçado: encerra qualquer conexão de streaming.
+  void onForcedOffline() {
+    if (_mirror != null) return;
+    if (_loaded && !_playingLocal) {
+      _wantPlay = false;
+      _pendingStart = _player.position;
+      _loaded = false;
+      _concat = null;
+      _playerError = 'Sem conexão: baixe a faixa para ouvir offline.';
+      unawaited(_player.stop());
+      notifyListeners();
+    } else {
+      _refreshNext();
+    }
   }
 
   void _scheduleProbe(Track t, int id) {
@@ -586,14 +608,10 @@ class PlayerService extends ChangeNotifier {
     if (_mirror != null) return _ctl('next');
     if (_order.isEmpty) return;
     final c = _concat;
-    if (!auto &&
-        c != null &&
-        _loaded &&
-        c.length == 2 &&
-        _nextPos == _pos + 1) {
+    if (!auto && c != null && _loaded && _cIdx + 1 < c.length) {
       _wantPlay = true;
       try {
-        await _player.seek(Duration.zero, index: 1);
+        await _player.seek(Duration.zero, index: _cIdx + 1);
         unawaited(_player.play());
         return;
       } catch (_) {}

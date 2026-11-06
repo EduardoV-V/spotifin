@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../net/net_policy.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -375,8 +376,11 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
+  /// Retoma a fila (ao sair do modo offline).
+  void resumeNetwork() => _pump();
+
   void _pump() {
-    if (_client.session == null) return;
+    if (_client.session == null || NetPolicy.offline) return;
     for (final it in _items.values.toList()) {
       if (_active.length >= _maxParallel) break;
       if (it.state == DownloadState.queued && !_active.contains(it.track.id)) {
@@ -428,7 +432,7 @@ class DownloadService extends ChangeNotifier {
       sink = part.openWrite(mode: start > 0 ? FileMode.append : FileMode.write);
       await for (final chunk
           in resp.stream.timeout(const Duration(seconds: 30))) {
-        if (_cancelRequested.contains(id)) break;
+        if (_cancelRequested.contains(id) || NetPolicy.offline) break;
         sink.add(chunk);
         it.bytesReceived += chunk.length;
         _changed();
@@ -436,7 +440,10 @@ class DownloadService extends ChangeNotifier {
       await sink.flush();
       await sink.close();
       sink = null;
-      if (_cancelRequested.remove(id)) {
+      if (!_cancelRequested.contains(id) && NetPolicy.offline) {
+        // Modo offline: pausa (mantém o arquivo parcial) e volta para a fila.
+        it.state = DownloadState.queued;
+      } else if (_cancelRequested.remove(id)) {
         if (_removeAfter.remove(id)) {
           _items.remove(id);
           await _deleteFiles(it);
@@ -459,8 +466,12 @@ class DownloadService extends ChangeNotifier {
         _cacheCovers(it.track);
       }
     } catch (e) {
-      it.state = DownloadState.error;
-      it.error = _describe(e);
+      if (NetPolicy.offline && !_cancelRequested.contains(id)) {
+        it.state = DownloadState.queued;
+      } else {
+        it.state = DownloadState.error;
+        it.error = _describe(e);
+      }
     } finally {
       try {
         await sink?.close();
