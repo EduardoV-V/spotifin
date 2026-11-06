@@ -199,6 +199,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   Future<void> _load() async {
+    if (_deleting) return;
     try {
       final l = await _scope.client.playlistTracks(widget.info.id);
       if (mounted) {
@@ -209,14 +210,21 @@ class _PlaylistPageState extends State<PlaylistPage> {
       }
     } on JellyfinException catch (e) {
       if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = 'Sem conexão com o servidor.');
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = JellyfinClient.isNetworkError(e)
+            ? 'Sem conexão com o servidor.'
+            : 'Não foi possível carregar a playlist: $e');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _remove(Track t) async {
+    // Otimista: some da tela primeiro, depois confirma no servidor.
+    final i = _tracks.indexOf(t);
+    if (i >= 0) setState(() => _tracks.removeAt(i));
     final err = await _scope.playlists.removeEntry(widget.info.id, t);
     if (err != null && mounted) _toast(err);
     await _load();
@@ -239,7 +247,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
         await showPlaylistDetails(context, widget.info.id, _name, _coverV);
     if (r == null || !mounted) return;
     if (r.deleted) {
-      Navigator.of(context).pop();
+      _leaveDeleted();
       return;
     }
     setState(() {
@@ -298,7 +306,8 @@ class _PlaylistPageState extends State<PlaylistPage> {
           _circleBtn(
               Icons.more_vert,
               () => showPlaylistMenu(
-                  context, Offset.zero, PlaylistInfo(widget.info.id, _name, _tracks.length))),
+                  context, Offset.zero, PlaylistInfo(widget.info.id, _name, _tracks.length),
+                  onDeleted: _leaveDeleted)),
         ],
       );
 
@@ -560,13 +569,22 @@ class _PlaylistPageState extends State<PlaylistPage> {
       ),
     );
     if (ok != true || !mounted) return;
-    final err = await _scope.playlists.delete(widget.info.id);
-    if (!mounted) return;
-    if (err != null) {
-      _toast(err);
-    } else {
-      Navigator.of(context).pop();
-    }
+    final m = ScaffoldMessenger.of(context);
+    final svc = _scope.playlists;
+    final id = widget.info.id;
+    _leaveDeleted();
+    final err = await svc.delete(id);
+    if (err != null) m.showSnackBar(SnackBar(content: Text(err)));
+  }
+
+  bool _deleting = false;
+
+  /// Sai da tela na hora (a exclusão no servidor segue em segundo plano).
+  void _leaveDeleted() {
+    if (_deleting) return;
+    _deleting = true;
+    _scope.reload.removeListener(_load);
+    if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
   }
 
   String get _summary {

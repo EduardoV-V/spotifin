@@ -154,13 +154,12 @@ class _DetailsState extends State<_Details> {
       ),
     );
     if (ok != true || !mounted) return;
-    final err = await scope.playlists.delete(widget.id);
-    if (!mounted) return;
-    if (err != null) {
-      setState(() => _err = err);
-    } else {
-      Navigator.pop(context, PlaylistEdit(widget.name, false, deleted: true));
-    }
+    final m = ScaffoldMessenger.maybeOf(context);
+    final svc = scope.playlists;
+    final id = widget.id;
+    Navigator.pop(context, PlaylistEdit(widget.name, false, deleted: true));
+    final err = await svc.delete(id);
+    if (err != null) m?.showSnackBar(SnackBar(content: Text(err)));
   }
 
   Widget _sheet() {
