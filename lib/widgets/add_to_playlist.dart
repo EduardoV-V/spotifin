@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
@@ -76,7 +77,8 @@ Future<String?> addToPlaylistChecked(
   final scope = AppScope.of(context);
   var toAdd = tracks;
   try {
-    final existing = (await scope.client.playlistTracks(p.id))
+    final existing = ((await scope.client.cachedPlaylistTracks(p.id)) ??
+            await scope.client.playlistTracks(p.id))
         .map((t) => Track.key(t.id))
         .toSet();
     final dup = tracks.where((t) => existing.contains(Track.key(t.id))).toList();
@@ -113,6 +115,10 @@ Future<String?> addToPlaylistChecked(
       }
     }
   } catch (_) {}
-  final err = await scope.playlists.add(p.id, toAdd);
-  return err ?? 'Adicionada a "${p.name}"';
+  // Otimista: confirma na hora e só avisa se o servidor recusar.
+  final m = ScaffoldMessenger.maybeOf(context);
+  unawaited(scope.playlists.add(p.id, toAdd).then((err) {
+    if (err != null) m?.showSnackBar(SnackBar(content: Text(err)));
+  }));
+  return 'Adicionada a "${p.name}"';
 }

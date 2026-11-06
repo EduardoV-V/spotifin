@@ -361,7 +361,8 @@ List<MenuEntry> albumEntries(BuildContext context,
   ];
 }
 
-List<MenuEntry> playlistEntries(BuildContext context, PlaylistInfo p) {
+List<MenuEntry> playlistEntries(BuildContext context, PlaylistInfo p,
+    {VoidCallback? onDeleted}) {
   final scope = AppScope.of(context);
   Future<List<Track>> tracks() => scope.client.playlistTracks(p.id);
   return [
@@ -411,8 +412,12 @@ List<MenuEntry> playlistEntries(BuildContext context, PlaylistInfo p) {
         ),
       );
       if (ok != true) return;
+      final m = ScaffoldMessenger.maybeOf(context);
+      onDeleted?.call();
       final err = await scope.playlists.delete(p.id);
-      if (err != null && context.mounted) _toast(context, err);
+      if (err != null) {
+        m?.showSnackBar(SnackBar(content: Text(err)));
+      }
     }),
   ];
 }
@@ -444,8 +449,9 @@ void showAlbumMenu(BuildContext context, Offset pos,
   }
 }
 
-void showPlaylistMenu(BuildContext context, Offset pos, PlaylistInfo p) {
-  final e = playlistEntries(context, p);
+void showPlaylistMenu(BuildContext context, Offset pos, PlaylistInfo p,
+    {VoidCallback? onDeleted}) {
+  final e = playlistEntries(context, p, onDeleted: onDeleted);
   if (_mobile(context)) {
     showSheetEntries(
         context,
